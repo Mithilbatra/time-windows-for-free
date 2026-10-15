@@ -15,7 +15,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import time
 
-from qubo import TSPTWInstance, QUBOBuilder, make_sample_instance
+from qubo import TSPTWInstance, QUBOBuilder, make_instance
 from qaoa import TSPTWQAOACircuit, qubo_to_hamiltonian
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -156,6 +156,13 @@ def city_colour(i):
     return CITY_COLOURS[i % len(CITY_COLOURS)]
 
 
+def layout(d):
+    """2-D positions whose distances roughly match d (classical MDS), for display only."""
+    J = np.eye(len(d)) - 1 / len(d)
+    w, V = np.linalg.eigh(-0.5 * J @ d**2 @ J)
+    return V[:, -2:] * np.sqrt(np.maximum(w[-2:], 0))
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Sidebar – problem configuration
 # ──────────────────────────────────────────────────────────────────────────────
@@ -169,17 +176,19 @@ with st.sidebar:
     mode = st.selectbox("Input mode", ["Random instance", "Manual cities", "Preset examples"])
 
     if mode == "Random instance":
-        n_cities = st.slider("Number of cities (+ depot)", 2, 4, 3)
+        n_cities = st.slider("Number of customers (+ depot)", 2, 4, 3)
         seed     = st.number_input("Random seed", value=42, step=1)
+        st.caption("Salehi et al. protocol: random travel times. Map positions are an approximate 2-D layout.")
         if st.button("🎲 Generate Instance"):
-            inst = make_sample_instance(n=n_cities, seed=int(seed))
+            inst = make_instance(n_cities, seed=int(seed))
+            inst.coords = layout(inst.d)      # display only; travel times stay inst.d
             st.session_state.cities = [
                 {"name": ("Depot" if i == 0 else f"City {i}"),
                  "x": float(inst.coords[i, 0]),
                  "y": float(inst.coords[i, 1]),
                  "e": float(inst.time_windows[i, 0]),
                  "l": float(inst.time_windows[i, 1])}
-                for i in range(inst.n)
+                for i in range(inst.n + 1)
             ]
             st.session_state.instance = inst
             st.session_state.builder  = None
@@ -189,12 +198,13 @@ with st.sidebar:
     elif mode == "Preset examples":
         preset = st.selectbox("Preset", ["3-city triangle", "4-city square"])
         if st.button("📦 Load Preset"):
+            # depot window = (departure, return deadline)
             if preset == "3-city triangle":
                 coords = [(0,0),(5,0),(2.5,4)]
-                windows = [(0,10),(2,8),(4,9)]
+                windows = [(0,20),(2,8),(4,12)]
             else:
                 coords = [(0,0),(4,0),(4,4),(0,4)]
-                windows = [(0,10),(1,6),(3,9),(5,12)]
+                windows = [(0,20),(1,6),(3,9),(5,12)]
             inst = TSPTWInstance(coords, windows)
             st.session_state.cities = [
                 {"name": ("Depot" if i == 0 else f"City {i}"),
@@ -202,7 +212,7 @@ with st.sidebar:
                  "y": float(inst.coords[i,1]),
                  "e": float(inst.time_windows[i,0]),
                  "l": float(inst.time_windows[i,1])}
-                for i in range(inst.n)
+                for i in range(inst.n + 1)
             ]
             st.session_state.instance = inst
             st.session_state.builder  = None
@@ -210,15 +220,15 @@ with st.sidebar:
             st.session_state.result   = None
 
     elif mode == "Manual cities":
-        n_manual = st.slider("Number of cities (+ depot)", 2, 4, 3)
+        n_manual = st.slider("Number of customers (+ depot)", 2, 4, 3)
         new_cities = []
-        for i in range(n_manual):
+        for i in range(n_manual + 1):
             lbl = "Depot" if i == 0 else f"City {i}"
             with st.expander(f"📍 {lbl}", expanded=(i == 0)):
                 cx = st.number_input(f"x ({lbl})", value=float(i*3), key=f"cx{i}")
                 cy = st.number_input(f"y ({lbl})", value=float(i*2), key=f"cy{i}")
                 ce = st.number_input(f"Earliest ({lbl})", value=0.0, key=f"ce{i}")
-                cl = st.number_input(f"Latest ({lbl})", value=10.0, key=f"cl{i}")
+                cl = st.number_input(f"Latest ({lbl})", value=30.0, key=f"cl{i}")
                 new_cities.append({"name":lbl,"x":cx,"y":cy,"e":ce,"l":cl})
         if st.button("✅ Use These Cities"):
             coords  = [(c["x"], c["y"]) for c in new_cities]
@@ -231,11 +241,10 @@ with st.sidebar:
             st.session_state.result   = None
 
     st.divider()
-    st.markdown('<div class="section-head">QUBO Penalties</div>', unsafe_allow_html=True)
-    lam_city = st.slider("λ city  (uniqueness)", 1.0, 20.0, 5.0, 0.5)
-    lam_pos  = st.slider("λ pos   (position)",   1.0, 20.0, 5.0, 0.5)
-    lam_dist = st.slider("λ dist  (travel)",      0.1, 5.0,  1.0, 0.1)
-    lam_tw   = st.slider("λ tw    (time window)", 1.0, 20.0, 8.0, 0.5)
+    st.markdown('<div class="section-head">QUBO Weights</div>', unsafe_allow_html=True)
+    A_mult = st.slider("A  constraints (× safe bound)", 0.1, 3.0, 1.0, 0.1)
+    B_dist = st.slider("B  travel distance",            0.1, 5.0, 1.0, 0.1)
+    P_mult = st.slider("P  time windows (× safe bound)", 0.1, 3.0, 1.0, 0.1)
 
     st.divider()
     st.markdown('<div class="section-head">QAOA Parameters</div>', unsafe_allow_html=True)
@@ -264,7 +273,7 @@ if run_btn:
         st.error("⚠️  Generate or load a problem instance first (sidebar).")
     else:
         inst    = st.session_state.instance
-        builder = QUBOBuilder(inst, lam_city, lam_pos, lam_dist, lam_tw)
+        builder = QUBOBuilder(inst, A=A_mult, B=B_dist, P=P_mult)
 
         with st.spinner("⚙️  Building QUBO & constructing Hamiltonian…"):
             Q = builder.build()
@@ -291,6 +300,8 @@ if run_btn:
                 bf_bs, bf_e, bf_route = qaoa.brute_force()
             except Exception:
                 bf_bs, bf_e, bf_route = None, None, []
+        if not bf_route:
+            st.warning("No route meets every time window for this instance.")
 
         st.session_state.builder   = builder
         st.session_state.qaoa      = qaoa
@@ -323,7 +334,7 @@ with tab1:
         st.info("👈  Generate or load an instance from the sidebar to begin.")
     else:
         cities = st.session_state.cities
-        n      = inst.n
+        n      = inst.n + 1          # nodes incl. depot
         coords = inst.coords
         tw     = inst.time_windows
 
@@ -431,23 +442,25 @@ with tab1:
             st.markdown('<div class="section-head">Instance</div>', unsafe_allow_html=True)
             st.markdown(f"""
             <div class="metric-card">
-              <h4>Cities</h4>
-              <div class="val">{n}</div>
-              <div class="sub">incl. depot</div>
+              <h4>Customers</h4>
+              <div class="val">{inst.n}</div>
+              <div class="sub">+ depot</div>
             </div>
             <div class="metric-card">
               <h4>Qubits</h4>
-              <div class="val">{n*n}</div>
-              <div class="sub">n² encoding</div>
+              <div class="val">{inst.n**2}</div>
+              <div class="sub">n² encoding, depot fixed</div>
             </div>
             """, unsafe_allow_html=True)
 
             if result:
                 route = result["route"]
-                cost  = inst.d[[route[t] for t in range(n-1)], [route[t+1] for t in range(n-1)]].sum() if -1 not in route else 0
-                valid = -1 not in route and len(set(route)) == n
                 builder = st.session_state.builder
-                viol  = builder.time_window_violations(route) if builder else []
+                valid = builder.is_valid_route(result["bitstring"])
+                cost  = inst.tour_cost(route) if valid else 0
+                # stops served after their deadline (0 = back at the depot too late)
+                viol  = [v for v, a in zip(route[1:] + [0], inst.arrivals(route)[1:])
+                         if a > inst.l[v]] if valid else []
 
                 st.markdown(f"""
                 <div class="metric-card">
@@ -470,14 +483,13 @@ with tab1:
                   {badge}<br><br>{tw_badge}
                 </div>""", unsafe_allow_html=True)
 
-                if bf and bf["route"] and -1 not in bf["route"]:
-                    bf_cost = inst.d[[bf["route"][t] for t in range(n-1)], [bf["route"][t+1] for t in range(n-1)]].sum()
-                    gap = abs(cost - bf_cost)
+                if valid and bf and bf["route"]:
+                    gap = cost - inst.tour_cost(bf["route"])
                     st.markdown(f"""
                     <div class="metric-card">
                       <h4>vs Classical</h4>
                       <div class="val">{gap:.2f}</div>
-                      <div class="sub">optimality gap</div>
+                      <div class="sub">QAOA cost − exact optimum</div>
                     </div>""", unsafe_allow_html=True)
 
             # Time windows table
@@ -492,30 +504,26 @@ with tab1:
             </table>""", unsafe_allow_html=True)
 
     # Route sequence (if result)
-    if result and result["route"]:
-        route = result["route"]
-        if -1 not in route and st.session_state.instance:
-            inst   = st.session_state.instance
-            cities = st.session_state.cities
-            tw     = inst.time_windows
-            T_max  = inst.T_max if inst.T_max > 0 else 1.0
-            tstep  = T_max / max(inst.n - 1, 1)
+    if result and st.session_state.builder.is_valid_route(result["bitstring"]):
+        inst   = st.session_state.instance
+        cities = st.session_state.cities
+        stops  = result["route"] + [0]          # ends back at the depot
+        arr    = inst.arrivals(result["route"])
 
-            st.markdown('<div class="section-head">Route Sequence</div>', unsafe_allow_html=True)
-            rows = ""
-            for t, city_idx in enumerate(route):
-                cname = cities[city_idx]["name"]
-                arr   = t * tstep
-                e, l  = tw[city_idx]
-                ok    = e <= arr <= l
-                status = '<span class="badge badge-green">✓ On time</span>' if ok else '<span class="badge badge-red">✗ Violation</span>'
-                dist  = "" if t == 0 else f"{inst.d[route[t-1], city_idx]:.2f}"
-                rows += f"<tr><td>{t}</td><td><span style='color:{city_colour(city_idx)};'>●</span> {cname}</td><td>{arr:.2f}</td><td>[{e:.1f},{l:.1f}]</td><td>{status}</td><td>{dist}</td></tr>"
-            st.markdown(f"""
-            <table class="route-table">
-              <tr><th>Step</th><th>City</th><th>Est. Arrival</th><th>Window</th><th>Status</th><th>Leg dist.</th></tr>
-              {rows}
-            </table>""", unsafe_allow_html=True)
+        st.markdown('<div class="section-head">Route Sequence</div>', unsafe_allow_html=True)
+        rows = ""
+        for t, city_idx in enumerate(stops):
+            cname = cities[city_idx]["name"] + (" (return)" if t == len(stops) - 1 else "")
+            e, l  = inst.time_windows[city_idx]
+            ok    = arr[t] <= l                 # arriving early just means waiting
+            status = '<span class="badge badge-green">✓ On time</span>' if ok else '<span class="badge badge-red">✗ Late</span>'
+            dist  = "" if t == 0 else f"{inst.d[stops[t-1], city_idx]:.2f}"
+            rows += f"<tr><td>{t}</td><td><span style='color:{city_colour(city_idx)};'>●</span> {cname}</td><td>{arr[t]:.2f}</td><td>[{e:.1f},{l:.1f}]</td><td>{status}</td><td>{dist}</td></tr>"
+        st.markdown(f"""
+        <table class="route-table">
+          <tr><th>Step</th><th>City</th><th>Service start</th><th>Window</th><th>Status</th><th>Leg dist.</th></tr>
+          {rows}
+        </table>""", unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -532,7 +540,7 @@ with tab2:
         col_heat, col_desc = st.columns([3, 1])
         with col_heat:
             # Labels: x_{city,pos}
-            labels = [f"x_{i}{t}" for i in range(n) for t in range(n)]
+            labels = [f"x{j},{k}" for j in range(1, n + 1) for k in range(1, n + 1)]
             fig = go.Figure(go.Heatmap(
                 z=Q, x=labels, y=labels,
                 colorscale="RdBu_r",
@@ -583,11 +591,10 @@ with tab2:
             st.markdown('<div class="section-head">Penalty Terms</div>', unsafe_allow_html=True)
             st.markdown(f"""
             <table class="route-table">
-              <tr><th>Term</th><th>λ</th></tr>
-              <tr><td>City uniqueness</td><td>{builder.lam_city}</td></tr>
-              <tr><td>Position fill</td><td>{builder.lam_pos}</td></tr>
-              <tr><td>Travel distance</td><td>{builder.lam_dist}</td></tr>
-              <tr><td>Time windows</td><td>{builder.lam_tw}</td></tr>
+              <tr><th>Term</th><th>Weight</th></tr>
+              <tr><td>A · one-hot constraints</td><td>{builder.A:.2f}</td></tr>
+              <tr><td>B · travel distance</td><td>{builder.B:.2f}</td></tr>
+              <tr><td>P · time windows ({builder.tw})</td><td>{builder.P:.2f}</td></tr>
             </table>
             """, unsafe_allow_html=True)
 
@@ -631,8 +638,8 @@ with tab3:
             for q in range(n_q):
                 inst2 = st.session_state.instance
                 cities = st.session_state.cities
-                city_i = q // inst2.n
-                pos_t  = q %  inst2.n
+                city_i = q // inst2.n + 1       # customers are 1..n
+                pos_t  = q %  inst2.n + 1
                 cname  = cities[city_i]["name"] if cities else f"c{city_i}"
                 col    = city_colour(city_i)
                 line = f"<div style='display:flex;align-items:center;gap:4px;margin:2px 0;'>"
@@ -874,8 +881,8 @@ with tab5:
             # Display as qubit grid
             html = "<div>"
             for i in range(n):
-                city_name = st.session_state.cities[i]["name"] if st.session_state.cities else f"C{i}"
-                html += f"<div style='margin-bottom:6px;'><span style='color:{city_colour(i)};font-family:Space Mono;font-size:0.65rem;'>{city_name}</span><div class='qubit-row'>"
+                city_name = st.session_state.cities[i + 1]["name"] if st.session_state.cities else f"C{i + 1}"
+                html += f"<div style='margin-bottom:6px;'><span style='color:{city_colour(i + 1)};font-family:Space Mono;font-size:0.65rem;'>{city_name}</span><div class='qubit-row'>"
                 for t in range(n):
                     bit = bs[i*n + t]
                     cls = "qubit-1" if bit else "qubit-0"
@@ -926,13 +933,8 @@ with tab5:
             c_route = bf["route"]
             inst    = st.session_state.instance
 
-            def route_cost_safe(route, inst):
-                if not route or -1 in route:
-                    return float('nan')
-                return sum(inst.d[route[t], route[t+1]] for t in range(len(route)-1))
-
-            q_cost = route_cost_safe(q_route, inst)
-            c_cost = route_cost_safe(c_route, inst)
+            q_cost = inst.tour_cost(q_route) if builder.is_valid_route(result["bitstring"]) else float('nan')
+            c_cost = inst.tour_cost(c_route)
 
             fig = go.Figure()
             fig.add_trace(go.Bar(

@@ -1,236 +1,285 @@
 """
-TSPTW QUBO Formulation with Time-Window Penalty Hamiltonian
-===========================================================
-Encodes the Travelling Salesman Problem with Time Windows (TSPTW)
-as a Quadratic Unconstrained Binary Optimization (QUBO) problem.
+TSPTW → QUBO
+============
+Travelling Salesman Problem with Time Windows, encoded for QAOA.
 
-Variables: x_{i,t} = 1 if city i is visited at position t in the route
-           s_{i,k} = slack binary variables for time-window encoding
+Instance
+  Depot = node 0, customers 1..n.  d[u, v] = travel time (= cost).
+  Customer j must be served inside [e_j, l_j]; arriving early means waiting.
+  The vehicle leaves the depot at e_0 and must be back by l_0 (inf = no deadline).
 
-Objective terms:
-  1. Route validity  – each city visited exactly once
-  2. Position validity – each position filled exactly once
-  3. Travel cost     – minimize total distance
-  4. Time-window penalty – soft penalty if arrival outside [e_i, l_i]
+Encoding (depot fixed at position 0, so n customers need n² qubits)
+  x[j, k] = 1  iff customer j is the k-th stop            qubit (j-1)*n + (k-1)
+
+H = H_A + H_B + H_T, every term ≥ 0:
+
+  H_A  A · Σ_j (1 − Σ_k x[j,k])²  +  A · Σ_k (1 − Σ_j x[j,k])²
+       one stop per customer and one customer per position;
+       (1 − Σx)² = 1 − Σx + 2·Σ_{a<b} x_a x_b  for binary x.
+
+  H_B  B · [ Σ_j d[0,j] x[j,1] + Σ_k Σ_{u≠j} d[u,j] x[u,k] x[j,k+1] + Σ_j d[j,0] x[j,n] ]
+       closed tour; the legs touching the fixed depot are linear.
+
+  H_T  P · (time-window terms from tw_terms):
+       E0    none
+       E1    LB[j,k] = earliest possible service start of j as the k-th stop, over all
+             k-hop walks from the depot whose stops are all on time:
+               LB[j,1] = max(e_j, e_0 + d[0,j])
+               LB[j,k] = max(e_j, min_{u≠j, LB[u,k-1] ≤ l_u} LB[u,k-1] + d[u,j])
+             linear    x[j,k]           if LB[j,k] > l_j   (k = n: or LB[j,n] + d[j,0] > l_0)
+             pairwise  x[u,k] x[j,k+1]  if max(e_j, LB[u,k] + d[u,j]) > l_j
+       E1+C  E1 plus a look-ahead x[u,k] x[w,k+2] when no middle customer fits.
+       Sound: a feasible route's service start at stop k is ≥ LB, so no feasible route is
+       ever penalised (proof: related_work.md §4).  E1's pairs are pairs H_B already
+       couples, so it adds no two-qubit gates; E1+C's (k, k+2) pairs are new couplings.
+
+Weights
+  A and P are multiples of S = B · Σ_v max_w d[v,w] ≥ B · (cost of any tour).  Since every
+  term is non-negative, A, P ≥ 1 keep the TSPTW optimum below every invalid assignment
+  (energy ≥ 2A) and every penalised route (energy > P).  Unpenalised infeasible routes
+  compete on cost alone; how often that happens is what pruning_check.py measures.
 """
 
+import itertools
 import numpy as np
-from itertools import product
 
 
 class TSPTWInstance:
-    """Represents a TSPTW problem instance."""
+    """Depot = node 0, customers 1..n.  time_windows[0] = (departure time, return deadline)."""
 
-    def __init__(self, coords, time_windows, travel_times=None, depot=0):
+    def __init__(self, coords, time_windows, travel_times=None):
         """
-        Parameters
-        ----------
-        coords       : list of (x, y) tuples, shape (n,)
-        time_windows : list of (earliest, latest) per city, shape (n,)
-        travel_times : optional n×n matrix; computed from Euclidean dist if None
-        depot        : index of the depot / start city
+        coords       : (n+1, 2) positions, or None when travel_times is given
+        time_windows : (n+1, 2) rows of (earliest, latest)
+        travel_times : optional (n+1, n+1) matrix; Euclidean distance between coords if None
         """
-        self.coords = np.array(coords, dtype=float)
+        self.coords = None if coords is None else np.array(coords, dtype=float)
         self.time_windows = np.array(time_windows, dtype=float)
-        self.depot = depot
-        self.n = len(coords)
-
+        self.e, self.l = self.time_windows.T
         if travel_times is not None:
             self.d = np.array(travel_times, dtype=float)
         else:
-            self.d = self._euclidean_matrix()
+            self.d = np.linalg.norm(self.coords[:, None] - self.coords[None], axis=-1)
+        self.n = len(self.d) - 1          # customers
 
-        # Cumulative travel time from depot: used for time-window checking
-        self.T_max = self.time_windows[:, 1].max()
+    def tour_cost(self, route):
+        """route = [0, c1, ..., cn]: cost of the closed tour back to the depot."""
+        route = list(route)
+        return float(sum(self.d[u, v] for u, v in zip(route, route[1:] + route[:1])))
 
-    def _euclidean_matrix(self):
-        n = self.n
-        D = np.zeros((n, n))
-        for i in range(n):
-            for j in range(n):
-                D[i, j] = np.linalg.norm(self.coords[i] - self.coords[j])
-        return D
+    def arrivals(self, route):
+        """Service start at each stop of route (waiting if early), then the return time."""
+        route = list(route)
+        a = self.e[0]
+        out = [a]
+        for u, v in zip(route, route[1:]):
+            a = max(self.e[v], a + self.d[u, v])
+            out.append(a)
+        return out + [a + self.d[route[-1], 0]]
 
-    @property
-    def n_cities(self):
-        return self.n
 
+def make_instance(n, seed=None):
+    """Random feasible instance, protocol of Salehi, Glos & Miszczak (2022) §4.1:
+    travel costs U{1..10} (made metric by shortest-path closure), e_j ~ U{1..20},
+    l_j ~ U{e_j..40}; resampled until at least one route is feasible.
+    seed may be an int or a np.random.Generator (drawn from in place)."""
+    rng = np.random.default_rng(seed)
+    while True:
+        N = n + 1
+        d = rng.integers(1, 11, size=(N, N)).astype(float)
+        d = np.triu(d, 1)
+        d = d + d.T
+        for k in range(N):                    # Floyd–Warshall
+            d = np.minimum(d, d[:, [k]] + d[[k], :])
+        e = np.r_[0, rng.integers(1, 21, size=n)].astype(float)
+        l = np.r_[np.inf, [rng.integers(ei, 41) for ei in e[1:]]].astype(float)
+        inst = TSPTWInstance(None, np.c_[e, l], travel_times=d)
+        if all_routes(inst)[1].any():
+            return inst
+
+
+def all_routes(inst):
+    """Every customer order (rows of perms; depot implied at both ends), whether it meets
+    every window including the return deadline, and its tour cost.  n! rows."""
+    n, d, e, l = inst.n, inst.d, inst.e, inst.l
+    perms = np.array(list(itertools.permutations(range(1, n + 1))))
+    a = np.full(len(perms), e[0])
+    prev = np.zeros(len(perms), dtype=int)
+    feasible = np.ones(len(perms), dtype=bool)
+    cost = np.zeros(len(perms))
+    for k in range(n):
+        c = perms[:, k]
+        cost += d[prev, c]
+        a = np.maximum(e[c], a + d[prev, c])  # wait if early
+        feasible &= a <= l[c]
+        prev = c
+    cost += d[prev, 0]
+    feasible &= a + d[prev, 0] <= l[0]
+    return perms, feasible, cost
+
+
+def solve_exact(inst):
+    """Optimal TSPTW route [0, c1, ..., cn] and its cost, or (None, inf) if infeasible."""
+    perms, feasible, cost = all_routes(inst)
+    if not feasible.any():
+        return None, np.inf
+    i = np.flatnonzero(feasible)[np.argmin(cost[feasible])]
+    return [0, *perms[i].tolist()], float(cost[i])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Time-window penalty terms
+# ─────────────────────────────────────────────────────────────────────────────
+
+def earliest_bounds(inst):
+    """LB[j, k]: earliest possible service start of customer j at position k+1, over all
+    walks from the depot whose stops are all on time.  inf if no such walk."""
+    n, d, e, l = inst.n, inst.d, inst.e, inst.l
+    LB = np.full((n + 1, n), np.inf)
+    LB[1:, 0] = np.maximum(e[1:], e[0] + d[0, 1:])
+    for k in range(1, n):
+        prev = np.where(LB[:, k - 1] <= l, LB[:, k - 1], np.inf)
+        prev[0] = np.inf
+        M = prev[:, None] + d
+        np.fill_diagonal(M, np.inf)
+        LB[1:, k] = np.maximum(e[1:], M.min(axis=0)[1:])
+    return LB
+
+
+def lookahead(inst, start):
+    """(n-2, n+1, n+1) look-ahead terms: penalise (u at k, w at k+2) when no middle
+    customer v makes u → v → w fit, given u's service starts no earlier than start[u, k]."""
+    n, d, e, l = inst.n, inst.d, inst.e, inst.l
+    la = np.zeros((max(n - 2, 0), n + 1, n + 1))
+    cust = range(1, n + 1)
+
+    def fits(u, v, w, k):
+        a2 = max(e[v], start[u, k] + d[u, v])
+        return a2 <= l[v] and max(e[w], a2 + d[v, w]) <= l[w]
+
+    for k in range(n - 2):
+        for u in cust:
+            for w in cust:
+                if u != w:
+                    la[k, u, w] = not any(fits(u, v, w, k) for v in cust if v not in (u, w))
+    return la
+
+
+def tw_terms(inst, kind="E1"):
+    """Time-window terms for kind in {"E0", "E1", "E1+C"}, by 0-based position k:
+    lin[j, k] on x[j,k];  pair[k, u, j] on x[u,k]·x[j,k+1];  la[k, u, w] on x[u,k]·x[w,k+2]."""
+    n, d, e, l = inst.n, inst.d, inst.e, inst.l
+    lin = np.zeros((n + 1, n))
+    pair = np.zeros((max(n - 1, 0), n + 1, n + 1))
+    la = np.zeros((max(n - 2, 0), n + 1, n + 1))
+    if kind == "E0":
+        return lin, pair, la
+    LB = earliest_bounds(inst)
+    lin[1:] = LB[1:] > l[1:, None]
+    lin[1:, -1] = (lin[1:, -1] > 0) | (LB[1:, -1] + d[1:, 0] > l[0])   # must still get home
+    mask = np.ones((n + 1, n + 1), dtype=bool)
+    mask[0] = mask[:, 0] = False
+    np.fill_diagonal(mask, False)
+    for k in range(n - 1):
+        pair[k] = mask & (np.maximum(e, LB[:, k, None] + d) > l)
+    if kind == "E1+C":
+        la = lookahead(inst, LB)
+    elif kind != "E1":
+        raise ValueError(f"unknown time-window encoding {kind!r}")
+    return lin, pair, la
+
+
+def route_penalty(perms, lin, pair, la):
+    """Penalty units of each customer order (rows of perms, depot omitted)."""
+    n = perms.shape[1]
+    pen = sum(lin[perms[:, k], k] for k in range(n))
+    pen = pen + sum(pair[k][perms[:, k], perms[:, k + 1]] for k in range(n - 1))
+    return pen + sum(la[k][perms[:, k], perms[:, k + 2]] for k in range(n - 2))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# QUBO builder
+# ─────────────────────────────────────────────────────────────────────────────
 
 class QUBOBuilder:
     """
-    Builds the QUBO matrix Q for TSPTW.
-
-    Binary variables are indexed as:  var(i, t) = i*n + t
-    Total variables                :  n * n   (for small n≤4 demos)
+    Upper-triangular QUBO matrix Q (linear terms on the diagonal) plus a constant offset,
+    so energy(x) = xᵀQx + offset.  A valid, unpenalised route's energy is B · tour cost.
     """
 
-    def __init__(self, instance: TSPTWInstance,
-                 lam_city=5.0,
-                 lam_pos=5.0,
-                 lam_dist=1.0,
-                 lam_tw=8.0):
+    def __init__(self, instance: TSPTWInstance, A=1.0, B=1.0, P=1.0, tw="E1"):
+        """A, P: multiples of the safe scale S (module docstring).  tw: "E0" | "E1" | "E1+C"."""
+        S = B * instance.d.max(axis=1).sum()
         self.inst = instance
         self.n = instance.n
-        self.lam_city = lam_city   # Lagrange multiplier: city-visit constraint
-        self.lam_pos  = lam_pos    # Lagrange multiplier: position constraint
-        self.lam_dist = lam_dist   # Lagrange multiplier: distance objective
-        self.lam_tw   = lam_tw     # Lagrange multiplier: time-window penalty
+        self.N = self.n * self.n              # qubits
+        self.A, self.B, self.P, self.tw = A * S, B, P * S, tw
+        self.build()
 
-        self.N = self.n * self.n   # total QUBO variables
-        self.Q = np.zeros((self.N, self.N))
+    def _idx(self, j, k):
+        """Qubit of customer j (1..n) at 0-based position k."""
+        return (j - 1) * self.n + k
 
-    def _idx(self, city, pos):
-        return city * self.n + pos
-
-    # ------------------------------------------------------------------
-    # Constraint 1: Each city visited exactly once
-    #   (sum_t x_{i,t} - 1)^2  expanded →  quadratic in x
-    # ------------------------------------------------------------------
-    def _add_city_constraints(self):
-        n = self.n
-        for i in range(n):
-            # diagonal: -lambda * x_{i,t}  (from -2 * 1 * x_{i,t})
-            for t in range(n):
-                idx = self._idx(i, t)
-                self.Q[idx, idx] += self.lam_city * (1 - 2)   # -λ(2-1)? let's expand properly
-            # off-diagonal: 2*lambda * x_{i,t1} * x_{i,t2}
-        # Proper expansion of (sum_t x_{i,t} - 1)^2:
-        #  = sum_t x_{i,t}^2 + 2 sum_{t<t'} x_{i,t}x_{i,t'} - 2 sum_t x_{i,t} + 1
-        # Since x^2 = x for binary: sum_t x_{i,t}(1-2) + 2 sum_{t<t'} x_{i,t}x_{i,t'}
-        # Reset and redo properly
-        for i in range(n):
-            for t in range(n):
-                idx = self._idx(i, t)
-                self.Q[idx, idx] += self.lam_city * (-1)  # coefficient of x_{i,t}
-                for t2 in range(t + 1, n):
-                    idx2 = self._idx(i, t2)
-                    self.Q[idx, idx2] += self.lam_city * 2
-
-    # ------------------------------------------------------------------
-    # Constraint 2: Each position filled exactly once
-    # ------------------------------------------------------------------
-    def _add_position_constraints(self):
-        n = self.n
-        for t in range(n):
-            for i in range(n):
-                idx = self._idx(i, t)
-                self.Q[idx, idx] += self.lam_pos * (-1)
-                for i2 in range(i + 1, n):
-                    idx2 = self._idx(i2, t)
-                    self.Q[idx, idx2] += self.lam_pos * 2
-
-    # ------------------------------------------------------------------
-    # Objective 3: Minimize travel distance
-    #   sum_{i,j,t} d_{i,j} * x_{i,t} * x_{j,t+1}
-    # ------------------------------------------------------------------
-    def _add_distance_objective(self):
-        n = self.n
-        d = self.inst.d
-        for t in range(n - 1):
-            for i in range(n):
-                for j in range(n):
-                    if i != j:
-                        idx_i = self._idx(i, t)
-                        idx_j = self._idx(j, t + 1)
-                        r, c = min(idx_i, idx_j), max(idx_i, idx_j)
-                        self.Q[r, c] += self.lam_dist * d[i, j]
-
-    # ------------------------------------------------------------------
-    # Penalty 4: Time-window penalty Hamiltonian
-    #   Soft penalty P_tw = sum_i max(0, a_i - l_i)^2 + max(0, e_i - a_i)^2
-    #   where a_i is the estimated arrival time at city i.
-    #
-    #   Arrival time approximation:
-    #     a_i ≈ sum_{t} t * (T_max / n) * x_{i,t}     (position → time mapping)
-    #
-    #   Penalty for city i being visited at position t if arrival outside window:
-    #     arrival_est = t * (T_max / n)
-    #     pen_i_t = max(0, arrival_est - l_i) + max(0, e_i - arrival_est)
-    #
-    #   Added as diagonal QUBO term: lam_tw * pen_i_t^2 * x_{i,t}
-    # ------------------------------------------------------------------
-    def _add_time_window_penalties(self):
-        n = self.n
-        T_max = self.inst.T_max if self.inst.T_max > 0 else 1.0
-        time_step = T_max / max(n - 1, 1)
-        tw = self.inst.time_windows
-
-        for i in range(n):
-            e_i, l_i = tw[i, 0], tw[i, 1]
-            for t in range(n):
-                arr = t * time_step          # estimated arrival
-                late  = max(0.0, arr - l_i)  # lateness
-                early = max(0.0, e_i - arr)  # earliness
-                penalty = (late ** 2 + early ** 2)
-                if penalty > 0:
-                    idx = self._idx(i, t)
-                    self.Q[idx, idx] -= self.lam_tw * penalty  # negative on diagonal = penalise
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
     def build(self):
-        """Return upper-triangular QUBO matrix Q."""
-        self.Q = np.zeros((self.N, self.N))
-        self._add_city_constraints()
-        self._add_position_constraints()
-        self._add_distance_objective()
-        self._add_time_window_penalties()
-        return self.Q
+        n, d = self.n, self.inst.d
+        Q = np.zeros((self.N, self.N))
+
+        def add(a, b, v):
+            Q[min(a, b), max(a, b)] += v
+
+        # H_A: each customer once, each position once
+        rows = [[self._idx(j, k) for k in range(n)] for j in range(1, n + 1)]
+        cols = [[self._idx(j, k) for j in range(1, n + 1)] for k in range(n)]
+        for group in rows + cols:
+            for a, qa in enumerate(group):
+                add(qa, qa, -self.A)
+                for qb in group[a + 1:]:
+                    add(qa, qb, 2 * self.A)
+        offset = self.A * (len(rows) + len(cols))
+
+        # H_B: closed tour distance
+        for j in range(1, n + 1):
+            add(self._idx(j, 0), self._idx(j, 0), self.B * d[0, j])
+            add(self._idx(j, n - 1), self._idx(j, n - 1), self.B * d[j, 0])
+        for k in range(n - 1):
+            for u in range(1, n + 1):
+                for j in range(1, n + 1):
+                    if u != j:
+                        add(self._idx(u, k), self._idx(j, k + 1), self.B * d[u, j])
+
+        # H_T: time windows
+        lin, pair, la = tw_terms(self.inst, self.tw)
+        for j in range(1, n + 1):
+            for k in range(n):
+                add(self._idx(j, k), self._idx(j, k), self.P * lin[j, k])
+        for k, u, j in zip(*np.nonzero(pair)):
+            add(self._idx(u, k), self._idx(j, k + 1), self.P * pair[k, u, j])
+        for k, u, w in zip(*np.nonzero(la)):
+            add(self._idx(u, k), self._idx(w, k + 2), self.P * la[k, u, w])
+
+        self.Q, self.offset = Q, offset
+        return Q
 
     def energy(self, bitstring):
-        """Evaluate QUBO energy for a binary vector x."""
-        x = np.array(bitstring, dtype=float)
-        return float(x @ self.Q @ x)
+        x = np.asarray(bitstring, dtype=float)
+        return float(x @ self.Q @ x + self.offset)
 
     def decode(self, bitstring):
-        """Decode a QUBO bitstring into a route (list of city indices)."""
-        n = self.n
-        route = [-1] * n
-        for i in range(n):
-            for t in range(n):
-                if bitstring[self._idx(i, t)] == 1:
-                    route[t] = i
-        return route
+        """Route [0, c1, ..., cn]; -1 marks an empty position."""
+        route = [-1] * self.n
+        for j in range(1, self.n + 1):
+            for k in range(self.n):
+                if bitstring[self._idx(j, k)] == 1:
+                    route[k] = j
+        return [0] + route
+
+    def encode(self, route):
+        bits = [0] * self.N
+        for k, j in enumerate(route[1:]):
+            bits[self._idx(j, k)] = 1
+        return tuple(bits)
 
     def is_valid_route(self, bitstring):
-        route = self.decode(bitstring)
-        return -1 not in route and len(set(route)) == self.n
-
-    def route_cost(self, route):
-        """Total travel distance for a decoded route list."""
-        if -1 in route:
-            return float('inf')
-        cost = 0.0
-        for t in range(len(route) - 1):
-            cost += self.inst.d[route[t], route[t + 1]]
-        return cost
-
-    def time_window_violations(self, route):
-        """Return list of (city, estimated_arrival, window) for TW violations."""
-        n = self.n
-        T_max = self.inst.T_max if self.inst.T_max > 0 else 1.0
-        time_step = T_max / max(n - 1, 1)
-        violations = []
-        tw = self.inst.time_windows
-        for t, city in enumerate(route):
-            if city == -1:
-                continue
-            arr = t * time_step
-            e, l = tw[city]
-            if arr < e or arr > l:
-                violations.append((city, arr, (e, l)))
-        return violations
-
-
-def make_sample_instance(n=3, seed=42):
-    """Create a small random TSPTW instance for demo."""
-    rng = np.random.default_rng(seed)
-    coords = rng.uniform(0, 10, size=(n, 2)).tolist()
-    # Time windows: give each city a reasonable window
-    windows = []
-    for i in range(n):
-        e = rng.uniform(0, 5)
-        l = e + rng.uniform(2, 6)
-        windows.append((float(e), float(l)))
-    return TSPTWInstance(coords, windows)
+        """Exactly one customer per position and one position per customer."""
+        route = self.decode(bitstring)[1:]
+        return sum(bitstring) == self.n and sorted(route) == list(range(1, self.n + 1))

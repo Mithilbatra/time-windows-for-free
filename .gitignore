@@ -1,0 +1,4 @@
+__pycache__/
+.DS_Store
+# macOS folder-icon file is "Icon\r"
+Icon?

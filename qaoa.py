@@ -6,14 +6,13 @@ Implements the Quantum Approximate Optimization Algorithm (QAOA) with:
   - Mixer Hamiltonian    H_B  (transverse field / X-mixer)
   - Variational parameters (γ, β) optimised via gradient descent
 
-For small instances (n≤3 cities → n²≤9 qubits) this runs on the
-default.qubit simulator; larger instances use the sparse simulator.
+n customers → n² qubits (depot fixed), simulated on default.qubit.
 """
 
 import numpy as np
 import pennylane as qml
 from pennylane import numpy as pnp
-from qubo import QUBOBuilder, TSPTWInstance
+from qubo import QUBOBuilder, solve_exact
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,10 +79,11 @@ class TSPTWQAOACircuit:
     >>> best_bs, best_E = qc.sample_best(n_shots=512)
     """
 
-    def __init__(self, builder: QUBOBuilder, p: int = 2):
+    def __init__(self, builder: QUBOBuilder, p: int = 2, seed=0):
         self.builder = builder
         self.p = p
         self.n_qubits = builder.N
+        self.rng = np.random.default_rng(seed)   # parameter init and shot sampling
 
         Q = builder.build()
         self.H_C, _, self.offset = qubo_to_hamiltonian(Q)
@@ -151,12 +151,11 @@ class TSPTWQAOACircuit:
 
         Returns dict with keys: params, loss_history, best_energy
         """
-        rng = np.random.default_rng(0)
         if init_params is not None:
             params = pnp.array(init_params, requires_grad=True)
         else:
             params = pnp.array(
-                rng.uniform(0, np.pi, size=2 * self.p),
+                self.rng.uniform(0, np.pi, size=2 * self.p),
                 requires_grad=True
             )
 
@@ -181,7 +180,7 @@ class TSPTWQAOACircuit:
         return {
             "params": np.array(self.best_params),
             "loss_history": self.loss_history,
-            "best_energy": best_loss + self.offset
+            "best_energy": best_loss + self.offset + self.builder.offset
         }
 
     # ── Sampling ──────────────────────────────────────────────────────────────
@@ -196,7 +195,7 @@ class TSPTWQAOACircuit:
         sv = self.get_statevector(params)
         probs = np.abs(sv) ** 2
         probs = probs / probs.sum()
-        indices = np.random.choice(len(probs), size=n_shots, p=probs)
+        indices = self.rng.choice(len(probs), size=n_shots, p=probs)
         counts = {}
         for idx in indices:
             bs = tuple(int(b) for b in format(idx, f'0{self.n_qubits}b'))
@@ -234,19 +233,13 @@ class TSPTWQAOACircuit:
         probs = np.abs(sv) ** 2
         return np.arange(len(probs)), probs
 
-    # ── Classical brute-force (for comparison) ──────────────────────────────
+    # ── Classical exact solver (for comparison) ─────────────────────────────
 
     def brute_force(self):
-        """Enumerate all 2^N bitstrings and return the best valid one."""
-        N = self.n_qubits
-        best_bs = None
-        best_e  = float('inf')
-        for i in range(2 ** N):
-            bs = tuple(int(b) for b in format(i, f'0{N}b'))
-            if self.builder.is_valid_route(bs):
-                e = self.builder.energy(bs)
-                if e < best_e:
-                    best_e = e
-                    best_bs = bs
-        route = self.builder.decode(best_bs) if best_bs else []
-        return best_bs, best_e, route
+        """True TSPTW optimum by enumerating the n! routes: (bitstring, QUBO energy, route),
+        or (None, None, []) when no route meets every time window."""
+        route, _ = solve_exact(self.builder.inst)
+        if route is None:
+            return None, None, []
+        bs = self.builder.encode(route)
+        return bs, self.builder.energy(bs), route
