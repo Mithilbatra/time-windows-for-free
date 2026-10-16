@@ -1,0 +1,30 @@
+n = 3 customers: tuned weights on 10 instances, evaluated on 20 fresh ones (100 reads x 10000 sweeps)
+  enc   qubits  p1   p2 tune P(opt)  P(valid) P(on time)  P(opt)  solved
+  E0         9   1    1       0.472     0.932      0.525   0.474   20/20
+  E1         9   2  0.1       0.742     1.000      0.962   0.734   20/20
+  E1+C       9   2  0.1       0.792     1.000      1.000   0.762   20/20
+  E2        60   1  500       0.454     0.880      0.690   0.516   20/20
+  E2 oracle (best pair per instance, 2000 sweeps): mean P(opt) 0.516, solved 5/5
+  E1 P(opt) at 2000 / 10000 / 50000 sweeps (same 5 instances): 0.636 / 0.642 / 0.620
+  E2 P(opt) at 2000 / 10000 / 50000 sweeps (same 5 instances): 0.412 / 0.458 / 0.526
+
+n = 4 customers: tuned weights on 10 instances, evaluated on 20 fresh ones (100 reads x 10000 sweeps)
+  enc   qubits  p1   p2 tune P(opt)  P(valid) P(on time)  P(opt)  solved
+  E0        16   1    1       0.267     0.973      0.268   0.206   16/20
+  E1        16   1 0.25       0.583     0.878      0.641   0.532   19/20
+  E1+C      16   1    1       0.633     0.817      0.775   0.611   20/20
+  E2       102   2 1000       0.189     0.964      0.379   0.187   20/20
+  E2 oracle (best pair per instance, 2000 sweeps): mean P(opt) 0.180, solved 5/5
+  E1 P(opt) at 2000 / 10000 / 50000 sweeps (same 5 instances): 0.314 / 0.366 / 0.378
+  E2 P(opt) at 2000 / 10000 / 50000 sweeps (same 5 instances): 0.088 / 0.158 / 0.138
+
+n = 5 customers: tuned weights on 10 instances, evaluated on 20 fresh ones (100 reads x 10000 sweeps)
+  enc   qubits  p1   p2 tune P(opt)  P(valid) P(on time)  P(opt)  solved
+  E0        25   1    1       0.150     0.988      0.239   0.115   17/20
+  E1        25   1  0.5       0.274     0.933      0.482   0.266   20/20
+  E1+C      25   1    1       0.327     0.902      0.591   0.338   20/20
+  E2       166   1  inf       0.081     0.904      0.204   0.071   19/20
+  E2 oracle (best pair per instance, 2000 sweeps): mean P(opt) 0.070, solved 5/5
+  E1 P(opt) at 2000 / 10000 / 50000 sweeps (same 5 instances): 0.192 / 0.228 / 0.256
+  E2 P(opt) at 2000 / 10000 / 50000 sweeps (same 5 instances): 0.034 / 0.046 / 0.062
+

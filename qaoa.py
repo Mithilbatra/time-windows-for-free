@@ -2,11 +2,15 @@
 PennyLane QAOA Circuit for TSPTW-QUBO
 ======================================
 Implements the Quantum Approximate Optimization Algorithm (QAOA) with:
-  - Problem Hamiltonian  H_C  derived from the QUBO matrix
-  - Mixer Hamiltonian    H_B  (transverse field / X-mixer)
-  - Variational parameters (γ, β) optimised via gradient descent
+  - Problem Hamiltonian  H_C  derived from the QUBO matrix, divided by its largest
+    |coefficient| so one step size and one range of initial angles suit every instance
+  - Mixer "x"   transverse field Σ X_i, starting from |+⟩^N
+    Mixer "xy"  XY ring inside each customer's row of qubits, starting from a W state per
+                row: every state keeps each customer at exactly one position, so the
+                each-customer-once penalty is zero there and is left out of H_C
+  - Variational parameters (γ, β) trained with Adam from one or more random starts
 
-n customers → n² qubits (depot fixed), simulated on default.qubit.
+n customers → n² qubits (depot fixed), simulated on lightning.qubit with adjoint gradients.
 """
 
 import numpy as np
@@ -23,45 +27,40 @@ def qubo_to_hamiltonian(Q: np.ndarray):
     """
     Convert upper-triangular QUBO matrix Q to a PennyLane Hamiltonian.
 
-    QUBO energy:  E(x) = x^T Q x
-    Using  x_i = (1 - Z_i)/2  (spin encoding), we get:
-      E = const + sum_i h_i Z_i + sum_{i<j} J_{ij} Z_i Z_j
+    QUBO energy  E(x) = xᵀQx  with  x_i = (1 − Z_i)/2  becomes
+      E = offset + Σ_i h_i Z_i + Σ_{i<j} J_ij Z_i Z_j,  where
+      J_ij = Q_ij/4,   h_i = −Q_ii/2 − Σ_{j≠i} J_ij,   offset = Σ_i Q_ii/2 + Σ_{i<j} J_ij
 
     Returns (H, n_qubits, offset)
     """
     n = Q.shape[0]
-    coeffs = []
-    ops    = []
-    offset = 0.0
+    J = np.triu(Q, 1) / 4
+    h = -np.diag(Q) / 2 - J.sum(axis=0) - J.sum(axis=1)
+    offset = float(np.diag(Q).sum() / 2 + J.sum())
 
-    # Diagonal terms:  Q_{ii} * x_i  →  Q_{ii}/4 * (1-Z)
-    for i in range(n):
-        q = Q[i, i]
-        if abs(q) > 1e-12:
-            offset += q / 2          # constant part  (Q_ii * 1/2)
-            coeffs.append(-q / 2)   # Z_i part
-            ops.append(qml.PauliZ(i))
-
-    # Off-diagonal terms: Q_{ij} * x_i * x_j  → Q_{ij}/4*(1-Z_i)(1-Z_j)
-    for i in range(n):
-        for j in range(i + 1, n):
-            q = Q[i, j]
-            if abs(q) > 1e-12:
-                offset +=  q / 4
-                coeffs.append(-q / 4)   # Z_i
-                ops.append(qml.PauliZ(i))
-                coeffs.append(-q / 4)   # Z_j
-                ops.append(qml.PauliZ(j))
-                coeffs.append( q / 4)   # Z_i Z_j
-                ops.append(qml.PauliZ(i) @ qml.PauliZ(j))
-
+    coeffs, ops = [], []
+    for i in np.flatnonzero(np.abs(h) > 1e-12):
+        coeffs.append(float(h[i]))
+        ops.append(qml.PauliZ(int(i)))
+    for i, j in zip(*np.nonzero(np.abs(J) > 1e-12)):
+        coeffs.append(float(J[i, j]))
+        ops.append(qml.PauliZ(int(i)) @ qml.PauliZ(int(j)))
     if not coeffs:
-        # trivial
-        coeffs = [0.0]
-        ops    = [qml.Identity(0)]
+        coeffs, ops = [0.0], [qml.Identity(0)]
+    return qml.Hamiltonian(coeffs, ops), n, offset
 
-    H = qml.Hamiltonian(coeffs, ops)
-    return H, n, offset
+
+def w_state(wires):
+    """Equal-amplitude superposition of the one-hot states on `wires`."""
+    qml.PauliX(wires[0])
+    m = len(wires)
+    for i in range(m - 1):          # keep 1/√m on wires[i], pass the rest to wires[i+1]
+        qml.SingleExcitation(-2 * np.arccos(1 / np.sqrt(m - i)), wires=[wires[i], wires[i + 1]])
+
+
+def ring(wires):
+    """Edges of a ring over `wires` (one edge for two wires)."""
+    return [tuple(wires)] if len(wires) == 2 else list(zip(wires, wires[1:] + wires[:1]))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -74,33 +73,32 @@ class TSPTWQAOACircuit:
 
     Usage
     -----
-    >>> qc = TSPTWQAOACircuit(builder, p=2)
-    >>> result = qc.optimize(steps=60)
-    >>> best_bs, best_E = qc.sample_best(n_shots=512)
+    >>> qc = TSPTWQAOACircuit(builder, p=2, mixer="xy")
+    >>> result = qc.optimize(steps=60, starts=3)
+    >>> best_bs, best_E, route, counts = qc.sample_best(n_shots=512)
     """
 
-    def __init__(self, builder: QUBOBuilder, p: int = 2, seed=0):
+    def __init__(self, builder: QUBOBuilder, p: int = 2, seed=0, mixer="x", normalize=True):
+        if mixer not in ("x", "xy"):
+            raise ValueError(f"unknown mixer {mixer!r}")
         self.builder = builder
         self.p = p
+        self.mixer = mixer
         self.n_qubits = builder.N
         self.rng = np.random.default_rng(seed)   # parameter init and shot sampling
+        n = builder.n
+        self.rows = [[builder._idx(j, k) for k in range(n)] for j in range(1, n + 1)]
 
-        Q = builder.build()
+        Q, self.qubo_offset = builder.qubo(rows=(mixer == "x"))
         self.H_C, _, self.offset = qubo_to_hamiltonian(Q)
+        self.scale = max(abs(c) for c in self.H_C.coeffs) if normalize else 1.0
+        self.scale = self.scale or 1.0
+        self._H = qml.Hamiltonian([c / self.scale for c in self.H_C.coeffs], self.H_C.ops)
 
-        # Mixer: H_B = -sum_i X_i
-        self.H_B = qml.Hamiltonian(
-            [-1.0] * self.n_qubits,
-            [qml.PauliX(i) for i in range(self.n_qubits)]
-        )
-
-        self.dev = qml.device("default.qubit", wires=self.n_qubits)
-
-        # Build QNode
-        self._circuit = qml.QNode(self._qaoa_circuit, self.dev,
-                                  interface="autograd")
+        self.dev = qml.device("lightning.qubit", wires=self.n_qubits)
+        self._circuit = qml.QNode(self._qaoa_circuit, self.dev, diff_method=None)
         self._cost_fn = qml.QNode(self._cost_circuit, self.dev,
-                                  interface="autograd")
+                                  interface="autograd", diff_method="adjoint")
 
         # Optimisation state
         self.params = None
@@ -109,78 +107,80 @@ class TSPTWQAOACircuit:
 
     # ── Circuit definition ────────────────────────────────────────────────────
 
-    def _qaoa_circuit(self, params):
-        """Full QAOA ansatz returning state."""
+    def _ansatz(self, params):
         gammas = params[:self.p]
         betas  = params[self.p:]
 
-        # Equal superposition
-        for i in range(self.n_qubits):
-            qml.Hadamard(wires=i)
+        if self.mixer == "x":
+            for i in range(self.n_qubits):
+                qml.Hadamard(wires=i)
+        else:
+            for row in self.rows:
+                w_state(row)
 
         for layer in range(self.p):
-            # Problem unitary  U_C(γ)
-            qml.ApproxTimeEvolution(self.H_C, gammas[layer], 1)
+            # Problem unitary  U_C(γ): exact in one step, the Z terms commute
+            qml.ApproxTimeEvolution(self._H, gammas[layer], 1)
             # Mixer unitary    U_B(β)
-            for i in range(self.n_qubits):
-                qml.RX(2 * betas[layer], wires=i)
+            if self.mixer == "x":
+                for i in range(self.n_qubits):
+                    qml.RX(2 * betas[layer], wires=i)
+            else:
+                for row in self.rows:
+                    for a, b in ring(row):
+                        qml.IsingXY(-2 * betas[layer], wires=[a, b])
 
+    def _qaoa_circuit(self, params):
+        """Full QAOA ansatz returning state."""
+        self._ansatz(params)
         return qml.state()
 
     def _cost_circuit(self, params):
-        """QAOA ansatz returning ⟨H_C⟩."""
-        gammas = params[:self.p]
-        betas  = params[self.p:]
-
-        for i in range(self.n_qubits):
-            qml.Hadamard(wires=i)
-
-        for layer in range(self.p):
-            qml.ApproxTimeEvolution(self.H_C, gammas[layer], 1)
-            for i in range(self.n_qubits):
-                qml.RX(2 * betas[layer], wires=i)
-
-        return qml.expval(self.H_C)
+        """QAOA ansatz returning ⟨H_C⟩ (normalised units)."""
+        self._ansatz(params)
+        return qml.expval(self._H)
 
     # ── Optimisation ─────────────────────────────────────────────────────────
 
     def optimize(self, steps: int = 80, stepsize: float = 0.05,
-                 init_params=None, callback=None):
+                 init_params=None, callback=None, starts: int = 1):
         """
-        Gradient-descent optimisation of QAOA variational parameters.
+        Adam on ⟨H_C⟩ from `starts` random initial angles (or once from init_params),
+        keeping the best.  Energies are expected QUBO energies, in QUBO units.
 
-        Returns dict with keys: params, loss_history, best_energy
+        Returns dict with keys: params, loss_history (winning start), best_energy,
+        start_energies (best energy reached by each start)
         """
-        if init_params is not None:
-            params = pnp.array(init_params, requires_grad=True)
-        else:
-            params = pnp.array(
-                self.rng.uniform(0, np.pi, size=2 * self.p),
-                requires_grad=True
-            )
+        runs = 1 if init_params is not None else starts
+        best_energy, start_energies = float('inf'), []
 
-        opt = qml.AdamOptimizer(stepsize=stepsize)
-        self.loss_history = []
-        best_loss = float('inf')
-        self.best_params = params.copy()
+        for run in range(runs):
+            init = init_params if init_params is not None else \
+                self.rng.uniform(0, np.pi, size=2 * self.p)
+            params = pnp.array(init, requires_grad=True)
+            opt = qml.AdamOptimizer(stepsize=stepsize)
+            history, run_best, run_params = [], float('inf'), params
 
-        for step in range(steps):
-            params, loss = opt.step_and_cost(self._cost_fn, params)
-            loss_val = float(loss)
-            self.loss_history.append(loss_val)
+            for step in range(steps):
+                before = params
+                params, loss = opt.step_and_cost(self._cost_fn, params)   # loss is at `before`
+                energy = float(loss) * self.scale + self.offset + self.qubo_offset
+                history.append(energy)
+                if energy < run_best:
+                    run_best, run_params = energy, before
+                if callback is not None:
+                    callback(run * steps + step, energy, params)
 
-            if loss_val < best_loss:
-                best_loss = loss_val
-                self.best_params = params.copy()
-
-            if callback is not None:
-                callback(step, loss_val, params)
+            start_energies.append(run_best)
+            if run_best < best_energy:
+                best_energy, self.best_params, self.loss_history = run_best, run_params, history
 
         self.params = params
         return {
             "params": np.array(self.best_params),
             "loss_history": self.loss_history,
-            "best_energy": best_loss + self.offset + self.builder.offset
+            "best_energy": best_energy,
+            "start_energies": start_energies,
         }
 
     # ── Sampling ──────────────────────────────────────────────────────────────

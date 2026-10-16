@@ -77,6 +77,11 @@ class TSPTWInstance:
             out.append(a)
         return out + [a + self.d[route[-1], 0]]
 
+    def late_stops(self, route):
+        """Stops served after their deadline; 0 means back at the depot too late."""
+        route = list(route)
+        return [v for v, a in zip(route[1:] + [0], self.arrivals(route)[1:]) if a > self.l[v]]
+
 
 def make_instance(n, seed=None):
     """Random feasible instance, protocol of Salehi, Glos & Miszczak (2022) §4.1:
@@ -214,13 +219,15 @@ class QUBOBuilder:
         self.n = instance.n
         self.N = self.n * self.n              # qubits
         self.A, self.B, self.P, self.tw = A * S, B, P * S, tw
-        self.build()
+        self.Q, self.offset = self.qubo()
 
     def _idx(self, j, k):
         """Qubit of customer j (1..n) at 0-based position k."""
         return (j - 1) * self.n + k
 
-    def build(self):
+    def qubo(self, rows=True):
+        """(Q, offset).  rows=False leaves out the each-customer-once penalty, for a mixer
+        that keeps every customer's row one-hot by construction (the penalty is zero there)."""
         n, d = self.n, self.inst.d
         Q = np.zeros((self.N, self.N))
 
@@ -228,14 +235,15 @@ class QUBOBuilder:
             Q[min(a, b), max(a, b)] += v
 
         # H_A: each customer once, each position once
-        rows = [[self._idx(j, k) for k in range(n)] for j in range(1, n + 1)]
-        cols = [[self._idx(j, k) for j in range(1, n + 1)] for k in range(n)]
-        for group in rows + cols:
+        row_groups = [[self._idx(j, k) for k in range(n)] for j in range(1, n + 1)]
+        col_groups = [[self._idx(j, k) for j in range(1, n + 1)] for k in range(n)]
+        groups = (row_groups if rows else []) + col_groups
+        for group in groups:
             for a, qa in enumerate(group):
                 add(qa, qa, -self.A)
                 for qb in group[a + 1:]:
                     add(qa, qb, 2 * self.A)
-        offset = self.A * (len(rows) + len(cols))
+        offset = self.A * len(groups)
 
         # H_B: closed tour distance
         for j in range(1, n + 1):
@@ -256,9 +264,7 @@ class QUBOBuilder:
             add(self._idx(u, k), self._idx(j, k + 1), self.P * pair[k, u, j])
         for k, u, w in zip(*np.nonzero(la)):
             add(self._idx(u, k), self._idx(w, k + 2), self.P * la[k, u, w])
-
-        self.Q, self.offset = Q, offset
-        return Q
+        return Q, offset
 
     def energy(self, bitstring):
         x = np.asarray(bitstring, dtype=float)

@@ -248,8 +248,11 @@ with st.sidebar:
 
     st.divider()
     st.markdown('<div class="section-head">QAOA Parameters</div>', unsafe_allow_html=True)
+    mixer    = st.selectbox("Mixer", ["xy", "x"], format_func=lambda m: {
+        "xy": "XY ring per customer (keeps each customer once)", "x": "X (transverse field)"}[m])
     p_layers = st.slider("QAOA depth p", 1, 4, 2)
     steps    = st.slider("Optimisation steps", 20, 200, 80, 10)
+    starts   = st.slider("Random starts", 1, 5, 1)
     stepsize = st.select_slider("Step size", [0.01,0.02,0.05,0.1,0.15,0.2], value=0.05)
     n_shots  = st.select_slider("Measurement shots", [256,512,1024,2048], value=1024)
 
@@ -273,23 +276,21 @@ if run_btn:
         st.error("⚠️  Generate or load a problem instance first (sidebar).")
     else:
         inst    = st.session_state.instance
-        builder = QUBOBuilder(inst, A=A_mult, B=B_dist, P=P_mult)
-
         with st.spinner("⚙️  Building QUBO & constructing Hamiltonian…"):
-            Q = builder.build()
-
-        qaoa = TSPTWQAOACircuit(builder, p=p_layers)
+            builder = QUBOBuilder(inst, A=A_mult, B=B_dist, P=P_mult)
+            qaoa = TSPTWQAOACircuit(builder, p=p_layers, mixer=mixer)
 
         progress_bar = st.progress(0, text="Running QAOA…")
         loss_placeholder = st.empty()
         losses = []
+        total = steps * starts
 
         def cb(step, loss, _params):
             losses.append(loss)
-            pct = int((step + 1) / steps * 100)
-            progress_bar.progress(pct, text=f"Step {step+1}/{steps} · ⟨H_C⟩ = {loss:.4f}")
+            pct = int((step + 1) / total * 100)
+            progress_bar.progress(pct, text=f"Step {step+1}/{total} · ⟨H_C⟩ = {loss:.4f}")
 
-        result = qaoa.optimize(steps=steps, stepsize=stepsize, callback=cb)
+        result = qaoa.optimize(steps=steps, stepsize=stepsize, callback=cb, starts=starts)
         progress_bar.empty()
 
         with st.spinner("🔬 Sampling quantum state…"):
@@ -458,9 +459,7 @@ with tab1:
                 builder = st.session_state.builder
                 valid = builder.is_valid_route(result["bitstring"])
                 cost  = inst.tour_cost(route) if valid else 0
-                # stops served after their deadline (0 = back at the depot too late)
-                viol  = [v for v, a in zip(route[1:] + [0], inst.arrivals(route)[1:])
-                         if a > inst.l[v]] if valid else []
+                viol  = inst.late_stops(route) if valid else []
 
                 st.markdown(f"""
                 <div class="metric-card">
@@ -650,7 +649,7 @@ with tab3:
                     line += "<span style='color:#334155;'>────</span>"
                     line += "<span style='background:#14532d;color:#86efac;padding:2px 4px;border-radius:4px;'>U_C</span>"
                     line += "<span style='color:#334155;'>──</span>"
-                    line += "<span style='background:#3b0764;color:#d8b4fe;padding:2px 4px;border-radius:4px;'>RX</span>"
+                    line += f"<span style='background:#3b0764;color:#d8b4fe;padding:2px 4px;border-radius:4px;'>{'XY' if qaoa.mixer == 'xy' else 'RX'}</span>"
                 line += "<span style='color:#334155;'>────</span>"
                 line += "<span style='background:#451a03;color:#fcd34d;padding:2px 6px;border-radius:4px;'>M</span>"
                 line += "</div>"
