@@ -12,7 +12,7 @@ import time
 
 from qubo import TSPTWInstance, QUBOBuilder, make_instance
 from qaoa import TSPTWQAOACircuit, qubo_to_hamiltonian
-from ui import city_colour, layout
+from ui import city_colour, header, layout
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -41,10 +41,6 @@ init_state()
 # Sidebar – problem configuration
 # ──────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## ⚛️ TSPTW · QAOA")
-    st.markdown("<p>Quantum Route Optimiser</p>", unsafe_allow_html=True)
-    st.divider()
-
     st.markdown('<div class="section-head">Problem Setup</div>', unsafe_allow_html=True)
 
     mode = st.selectbox("Input mode", ["Random instance", "Manual cities", "Preset examples"])
@@ -137,12 +133,10 @@ with st.sidebar:
 # ──────────────────────────────────────────────────────────────────────────────
 # Main layout
 # ──────────────────────────────────────────────────────────────────────────────
-st.markdown("# ⚛️  TSPTW · QAOA  Route Planner")
-st.markdown(
-    "**Travelling Salesman Problem with Time Windows** solved via "
-    "**Quantum Approximate Optimisation Algorithm** — "
-    "QUBO formulation · PennyLane circuit · interactive dashboard"
-)
+header("100", "PennyLane · real circuit", "QAOA circuit demo",
+       "<strong>Travelling Salesman Problem with Time Windows</strong> solved via the "
+       "<strong>Quantum Approximate Optimisation Algorithm</strong>: QUBO formulation, PennyLane "
+       "circuit, sampled route.", "demo")
 
 # ── Run optimisation ──────────────────────────────────────────────────────────
 if run_btn:
@@ -190,11 +184,11 @@ if run_btn:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🗺️ Route Map",
-    "📊 QUBO Matrix",
-    "⚛️ Circuit",
-    "📈 Convergence",
-    "🔬 State Analysis"
+    "Route map",
+    "QUBO matrix",
+    "Circuit",
+    "Convergence",
+    "State analysis"
 ])
 
 
@@ -276,10 +270,10 @@ with tab1:
                 fig.add_trace(go.Scatter(
                     x=[city["x"]], y=[city["y"]],
                     mode="markers+text",
-                    marker=dict(size=22, color=col, line=dict(width=2, color="#0b0e1a"),
+                    marker=dict(size=22, color=col, line=dict(width=2, color="#0c1222"),
                                 symbol="circle"),
                     text=[city["name"]],
-                    textfont=dict(color="#0b0e1a", size=10, family="Space Mono"),
+                    textfont=dict(color="#0c1222", size=10, family="IBM Plex Mono"),
                     textposition="middle center",
                     name=city["name"],
                     hovertemplate=(
@@ -299,14 +293,14 @@ with tab1:
                 )
 
             fig.update_layout(
-                paper_bgcolor="#0b0e1a", plot_bgcolor="#0f1225",
-                font=dict(color="#94a3b8", family="DM Sans"),
+                paper_bgcolor="#0c1222", plot_bgcolor="#0c1222",
+                font=dict(color="#94a3b8", family="IBM Plex Sans"),
                 margin=dict(l=20, r=20, t=40, b=20),
-                xaxis=dict(showgrid=True, gridcolor="#1a2535", zeroline=False,
+                xaxis=dict(showgrid=True, gridcolor="#18213a", zeroline=False,
                            showticklabels=False),
-                yaxis=dict(showgrid=True, gridcolor="#1a2535", zeroline=False,
+                yaxis=dict(showgrid=True, gridcolor="#18213a", zeroline=False,
                            showticklabels=False, scaleanchor="x"),
-                legend=dict(bgcolor="#0f1629", bordercolor="#1e3a5f",
+                legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="#1e3a5f",
                             borderwidth=1, font=dict(size=11)),
                 title=dict(text="City Map & Optimised Route", font=dict(color="#7dd3fc")),
                 height=440,
@@ -420,16 +414,16 @@ with tab2:
                 zmid=0,
                 text=np.round(Q, 2),
                 texttemplate="%{text}",
-                textfont=dict(size=9, family="Space Mono"),
+                textfont=dict(size=9, family="IBM Plex Mono"),
                 hovertemplate="Q[%{x},%{y}] = %{z:.3f}<extra></extra>"
             ))
             fig.update_layout(
                 title="QUBO Matrix Q  (upper triangular encoding)",
-                paper_bgcolor="#0b0e1a", plot_bgcolor="#0f1225",
-                font=dict(color="#94a3b8", family="DM Sans"),
+                paper_bgcolor="#0c1222", plot_bgcolor="#0c1222",
+                font=dict(color="#94a3b8", family="IBM Plex Sans"),
                 height=420,
-                xaxis=dict(tickfont=dict(size=8, family="Space Mono", color="#7dd3fc")),
-                yaxis=dict(tickfont=dict(size=8, family="Space Mono", color="#7dd3fc"), autorange="reversed"),
+                xaxis=dict(tickfont=dict(size=8, family="IBM Plex Mono", color="#7dd3fc")),
+                yaxis=dict(tickfont=dict(size=8, family="IBM Plex Mono", color="#7dd3fc"), autorange="reversed"),
                 coloraxis_colorbar=dict(tickfont=dict(color="#94a3b8")),
                 margin=dict(l=20,r=20,t=50,b=20),
             )
@@ -482,10 +476,10 @@ with tab2:
             hovertemplate="Eigenvalue %{x}: %{y:.3f}<extra></extra>"
         ))
         fig2.update_layout(
-            paper_bgcolor="#0b0e1a", plot_bgcolor="#0f1225",
+            paper_bgcolor="#0c1222", plot_bgcolor="#0c1222",
             font=dict(color="#94a3b8"), height=220,
-            xaxis=dict(title="Index", gridcolor="#1a2535"),
-            yaxis=dict(title="Eigenvalue", gridcolor="#1a2535"),
+            xaxis=dict(title="Index", gridcolor="#18213a"),
+            yaxis=dict(title="Eigenvalue", gridcolor="#18213a"),
             margin=dict(l=20,r=20,t=10,b=40),
         )
         st.plotly_chart(fig2, use_container_width=True)
@@ -507,7 +501,7 @@ with tab3:
 
             # Build a visual circuit diagram as SVG-like HTML
             layers = ["H"] + [f"U_C(γ{i+1}), U_B(β{i+1})" for i in range(p)] + ["Measure"]
-            html = "<div style='font-family:Space Mono,monospace;font-size:0.72rem;color:#94a3b8;overflow-x:auto;'>"
+            html = "<div style='font-family:IBM Plex Mono,monospace;font-size:0.72rem;color:#94a3b8;overflow-x:auto;'>"
             for q in range(n_q):
                 inst2 = st.session_state.instance
                 cities = st.session_state.cities
@@ -573,11 +567,11 @@ with tab3:
                         name=f"β{i+1}={b:.3f}",
                     ))
                 fig.update_layout(
-                    paper_bgcolor="#0b0e1a", plot_bgcolor="#0f1225",
+                    paper_bgcolor="#0c1222", plot_bgcolor="#0c1222",
                     font=dict(color="#94a3b8"), height=260,
                     xaxis=dict(range=[-1.3,1.3], showgrid=False, zeroline=True, zerolinecolor="#1e3a5f"),
                     yaxis=dict(range=[-1.3,1.3], showgrid=False, zeroline=True, zerolinecolor="#1e3a5f", scaleanchor="x"),
-                    legend=dict(bgcolor="#0f1629", bordercolor="#1e3a5f", borderwidth=1, font=dict(size=9)),
+                    legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="#1e3a5f", borderwidth=1, font=dict(size=9)),
                     margin=dict(l=10,r=10,t=10,b=10),
                     title=dict(text="Parameter angle space", font=dict(color="#7dd3fc", size=11))
                 )
@@ -654,11 +648,11 @@ with tab4:
             ))
 
             fig.update_layout(
-                paper_bgcolor="#0b0e1a", plot_bgcolor="#0f1225",
+                paper_bgcolor="#0c1222", plot_bgcolor="#0c1222",
                 font=dict(color="#94a3b8"), height=360,
-                xaxis=dict(title="Optimisation Step", gridcolor="#1a2535", title_font=dict(color="#64748b")),
-                yaxis=dict(title="⟨H_C⟩  Expectation Value", gridcolor="#1a2535", title_font=dict(color="#64748b")),
-                legend=dict(bgcolor="#0f1629", bordercolor="#1e3a5f", borderwidth=1),
+                xaxis=dict(title="Optimisation Step", gridcolor="#18213a", title_font=dict(color="#64748b")),
+                yaxis=dict(title="⟨H_C⟩  Expectation Value", gridcolor="#18213a", title_font=dict(color="#64748b")),
+                legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="#1e3a5f", borderwidth=1),
                 margin=dict(l=20,r=20,t=20,b=60),
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -697,10 +691,10 @@ with tab4:
                 line=dict(color="#a78bfa", width=1.5),
             ))
             fig2.update_layout(
-                paper_bgcolor="#0b0e1a", plot_bgcolor="#0f1225",
+                paper_bgcolor="#0c1222", plot_bgcolor="#0c1222",
                 font=dict(color="#94a3b8"), height=180,
-                xaxis=dict(gridcolor="#1a2535"),
-                yaxis=dict(gridcolor="#1a2535", type="log"),
+                xaxis=dict(gridcolor="#18213a"),
+                yaxis=dict(gridcolor="#18213a", type="log"),
                 margin=dict(l=20,r=20,t=10,b=40),
             )
             st.plotly_chart(fig2, use_container_width=True)
@@ -739,10 +733,10 @@ with tab5:
                 hovertemplate="State %{x}: P=%{y:.4f}, E=%{marker.color:.2f}<extra></extra>"
             ))
             fig.update_layout(
-                paper_bgcolor="#0b0e1a", plot_bgcolor="#0f1225",
+                paper_bgcolor="#0c1222", plot_bgcolor="#0c1222",
                 font=dict(color="#94a3b8"), height=320,
-                xaxis=dict(title="Basis state index", gridcolor="#1a2535"),
-                yaxis=dict(title="Probability", gridcolor="#1a2535"),
+                xaxis=dict(title="Basis state index", gridcolor="#18213a"),
+                yaxis=dict(title="Probability", gridcolor="#18213a"),
                 margin=dict(l=20,r=20,t=10,b=50),
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -755,7 +749,7 @@ with tab5:
             html = "<div>"
             for i in range(n):
                 city_name = st.session_state.cities[i + 1]["name"] if st.session_state.cities else f"C{i + 1}"
-                html += f"<div style='margin-bottom:6px;'><span style='color:{city_colour(i + 1)};font-family:Space Mono;font-size:0.65rem;'>{city_name}</span><div class='qubit-row'>"
+                html += f"<div style='margin-bottom:6px;'><span style='color:{city_colour(i + 1)};font-family:IBM Plex Mono;font-size:0.65rem;'>{city_name}</span><div class='qubit-row'>"
                 for t in range(n):
                     bit = bs[i*n + t]
                     cls = "qubit-1" if bit else "qubit-0"
@@ -816,12 +810,12 @@ with tab5:
                 marker=dict(color=["#38bdf8", "#facc15"]),
                 text=[f"{q_cost:.3f}", f"{c_cost:.3f}"],
                 textposition="outside",
-                textfont=dict(color="#e2e8f0", family="Space Mono"),
+                textfont=dict(color="#e2e8f0", family="IBM Plex Mono"),
             ))
             fig.update_layout(
-                paper_bgcolor="#0b0e1a", plot_bgcolor="#0f1225",
+                paper_bgcolor="#0c1222", plot_bgcolor="#0c1222",
                 font=dict(color="#94a3b8"), height=240,
-                yaxis=dict(title="Route Cost", gridcolor="#1a2535"),
+                yaxis=dict(title="Route Cost", gridcolor="#18213a"),
                 margin=dict(l=20,r=20,t=20,b=40),
                 showlegend=False,
             )
@@ -833,7 +827,7 @@ with tab5:
 # ──────────────────────────────────────────────────────────────────────────────
 st.divider()
 st.markdown("""
-<div style='text-align:center;color:#334155;font-family:Space Mono,monospace;font-size:0.65rem;letter-spacing:0.1em;padding:12px 0;'>
+<div style='text-align:center;color:#5b6680;font-family:IBM Plex Mono,monospace;font-size:0.65rem;letter-spacing:0.1em;padding:12px 0;'>
   TSPTW · QAOA  ·  PennyLane + Streamlit  ·  QUBO formulation with time-window penalty Hamiltonian
 </div>
 """, unsafe_allow_html=True)

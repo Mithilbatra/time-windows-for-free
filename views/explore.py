@@ -32,7 +32,9 @@ def live(n, seed, width, enc, mixer, p1, p2, pmax, restarts):
                 routes=dict(zip(orders, probs[fq.valid])))
 
 
-st.markdown("# 🔍 Explore an instance")
+ui.header("010", "Live · exact simulation", "Explore an instance",
+          "Pick any instance in the sidebar: see its windows and exact optimum, which routes each encoding "
+          "penalises, and run QAOA on it live.", "explore")
 
 with st.sidebar:
     st.markdown('<div class="section-head">Instance</div>', unsafe_allow_html=True)

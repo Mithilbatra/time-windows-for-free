@@ -20,10 +20,10 @@ st.set_page_config(page_title="TSPTW · QAOA", page_icon="⚛️", layout="wide"
                    initial_sidebar_state="expanded")
 st.markdown(CSS, unsafe_allow_html=True)
 st.navigation([
-    st.Page("views/paper.py", title="Paper", icon="📄", default=True),
-    st.Page("views/method.py", title="Method", icon="🧮"),
-    st.Page("views/explore.py", title="Explore an instance", icon="🔍"),
-    st.Page("views/results.py", title="Results", icon="📊"),
-    st.Page("views/demo.py", title="QAOA circuit demo", icon="⚛️"),
-    st.Page("views/reproduce.py", title="Reproduce", icon="🔁"),
+    st.Page("views/paper.py", title="Paper", icon=":material/article:", default=True),
+    st.Page("views/method.py", title="Method", icon=":material/functions:"),
+    st.Page("views/explore.py", title="Explore an instance", icon=":material/travel_explore:"),
+    st.Page("views/results.py", title="Results", icon=":material/monitoring:"),
+    st.Page("views/demo.py", title="QAOA circuit demo", icon=":material/memory:"),
+    st.Page("views/reproduce.py", title="Reproduce", icon=":material/terminal:"),
 ]).run()

@@ -43,14 +43,15 @@ CAPTIONS = {
 
 
 def tile(column, label, value, sub):
-    column.markdown(f'<div class="metric-card"><h4>{label}</h4><div class="val">{value}</div>'
+    column.markdown(f'<div class="metric-card tile"><h4>{label}</h4><div class="val">{value}</div>'
                     f'<div class="sub">{sub}</div></div>', unsafe_allow_html=True)
 
 
-st.markdown("# 📄 Time windows for free")
-st.markdown("### A sound, ancilla-free time-window encoding for QAOA on the TSP with time windows")
-st.caption("Working title. Data, code and figures are done; the draft is in progress. Target: arXiv by "
-           "31 Dec 2026, then ICCS 2027 (submission around February; dates to confirm).")
+ui.hero("Research paper · working title", 'Time windows <span class="grad">for free</span>',
+        "A sound, ancilla-free time-window encoding for QAOA on the travelling salesman problem "
+        "with time windows",
+        ['<i class="dot"></i>Data, code and figures done', "Draft in progress", "arXiv · by 31 Dec 2026",
+         "ICCS 2027 · submission ~Feb, dates to confirm"])
 
 overview, figures, related = st.tabs(["Overview", "Figures", "Related work"])
 
@@ -71,7 +72,7 @@ with overview:
          f"P(opt) {sa_opt['E1']:.2f} for E1 vs {sa_opt['E2']:.2f} for the tuned slack-qubit E2")
     tile(t3, "Qubits, n = 5", f"{cost[5, 'E2'][0] / cost[5, 'E1'][0]:.1f}× fewer",
          f"E1 {cost[5, 'E1'][0]:.0f} vs E2 {cost[5, 'E2'][0]:.0f}")
-    tile(t4, "Two-qubit terms, n = 5", f"{cost[5, 'E2'][1] / cost[5, 'E1'][1]:.0f}× fewer",
+    tile(t4, "2-qubit terms, n = 5", f"{cost[5, 'E2'][1] / cost[5, 'E1'][1]:.0f}× fewer",
          f"per QAOA layer, X mixer: E1 {cost[5, 'E1'][1]:,.0f} vs E2 {cost[5, 'E2'][1]:,.0f}")
     st.markdown("#### Abstract (draft)")
     st.markdown(ABSTRACT)

@@ -11,6 +11,8 @@ import sys
 
 import streamlit as st
 
+import ui
+
 SOURCES = sorted(glob.glob("*.py")) + sorted(glob.glob("views/*.py"))
 
 
@@ -24,7 +26,9 @@ def summary(path):
     return " — ".join(paras[:2]) if len(paras[0]) < 50 and len(paras) > 1 else paras[0]
 
 
-st.markdown("# 🔁 Reproduce")
+ui.header("101", "Open and repeatable", "Reproduce",
+          "What each file does, the command behind every saved result, the self-checks (run them from "
+          "here), the source itself and the git history.", "reproduce")
 files, commands, checks, source, history = st.tabs(["Files", "Commands", "Self-checks", "Source", "History"])
 
 with files:

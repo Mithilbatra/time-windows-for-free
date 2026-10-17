@@ -24,7 +24,9 @@ SNIPPETS = [
     (baselines.anneal, "The simulated annealer used for every encoding."),
 ]
 
-st.markdown("# 🧮 Method")
+ui.header("001", "Encoding · penalties · code", "Method",
+          "How a route becomes n² qubits, how the time-window penalties are built and why they never "
+          "penalise a feasible route, what each encoding costs a circuit, and the code behind it.", "method")
 encoding, penalty, cost, code = st.tabs(["Encoding", "Time-window penalties", "Circuit cost", "Code"])
 
 with encoding:

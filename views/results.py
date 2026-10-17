@@ -20,9 +20,9 @@ def download(path):
     st.download_button(f"Download {path.split('/')[-1]}", open(path, "rb").read(), file_name=path.split("/")[-1])
 
 
-st.markdown("# 📊 Results")
-st.markdown("Read straight from `results/`. Bands and ± values are 95% t-intervals over instances; "
-            "differences between encodings are paired per instance.")
+ui.header("011", "Saved experiments", "Results",
+          "Read straight from <code>results/</code>. Bands and ± values are 95% t-intervals over instances; "
+          "differences between encodings are paired per instance.", "results")
 tab_qaoa, tab_sa, tab_tight, tab_pilot = st.tabs(["QAOA grid", "Annealing", "Window tightness", "Pilot runs"])
 
 # ── QAOA grid ─────────────────────────────────────────────────────────────────────
