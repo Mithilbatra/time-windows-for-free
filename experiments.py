@@ -197,23 +197,31 @@ def tightness(workers=6):
         print()
 
 
-def resources():
-    """What each encoding costs a QAOA circuit: qubits and two-qubit terms (every nonzero
-    off-diagonal entry of Q is one ZZ rotation, two CNOTs, per layer), means over the 20
-    evaluation instances, with p1 = p2 = 1.  Our encodings with the XY mixer drop the
-    each-customer-once penalty (zero on the states the mixer reaches)."""
-    print(f"{'n':>2} {'enc':5} {'qubits':>7} {'ZZ terms, X mixer':>18} {'ZZ terms, XY mixer':>19}")
+def resource_counts():
+    """(n, encoding) → mean (qubits, two-qubit terms with the X mixer, with the XY mixer) over
+    the 20 evaluation instances, p1 = p2 = 1.  Every nonzero off-diagonal entry of Q is one ZZ
+    rotation, two CNOTs, per layer; with the XY mixer our encodings drop the each-customer-once
+    penalty (zero on the states that mixer reaches), and E2 has no XY count (nan)."""
+    out = {}
     for n in SIZES:
         for enc in ENCODINGS:
-            qubits, zz_x, zz_xy = [], [], []
+            counts = []
             for s in EVAL_SEEDS:
                 b = builder(enc, make_instance(n, s), 1, 1)
-                qubits.append(b.N)
-                zz_x.append(np.count_nonzero(np.triu(b.Q, 1)))
-                zz_xy.append(np.count_nonzero(np.triu(b.qubo(rows=False)[0], 1)) if enc != "E2" else np.nan)
-            xy = f"{np.mean(zz_xy):19.1f}" if enc != "E2" else f"{'-':>19}"
-            print(f"{n:>2} {enc:5} {np.mean(qubits):7.0f} {np.mean(zz_x):18.1f} {xy}")
-        print()
+                xy = np.count_nonzero(np.triu(b.qubo(rows=False)[0], 1)) if enc != "E2" else np.nan
+                counts.append((b.N, np.count_nonzero(np.triu(b.Q, 1)), xy))
+            out[n, enc] = np.mean(counts, axis=0)
+    return out
+
+
+def resources():
+    """What each encoding costs a QAOA circuit (resource_counts), as a table."""
+    print(f"{'n':>2} {'enc':5} {'qubits':>7} {'ZZ terms, X mixer':>18} {'ZZ terms, XY mixer':>19}")
+    for (n, enc), (qubits, zz_x, zz_xy) in resource_counts().items():
+        xy = f"{zz_xy:19.1f}" if enc != "E2" else f"{'-':>19}"
+        print(f"{n:>2} {enc:5} {qubits:7.0f} {zz_x:18.1f} {xy}")
+        if enc == ENCODINGS[-1]:
+            print()
 
 
 if __name__ == "__main__":
