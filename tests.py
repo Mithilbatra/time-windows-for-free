@@ -1,5 +1,6 @@
 """Self-checks.   Run:  python tests.py   (or: pytest tests.py)"""
 import contextlib
+import glob
 import io
 import itertools
 import os
@@ -231,6 +232,19 @@ def test_grid_tunes_evaluates_and_resumes():
     finally:
         for k, v in saved.items():
             setattr(grid, k, v)
+
+
+# ── the Streamlit app (app.py, views/) ────────────────────────────────────────────
+
+def test_every_page_loads():
+    from streamlit.testing.v1 import AppTest
+    assert not AppTest.from_file("app.py", default_timeout=60).run().exception      # the router
+    for page in sorted(glob.glob("views/*.py")):
+        at = AppTest.from_file(page, default_timeout=300).run()
+        assert not at.exception, (page, [e.value for e in at.exception])
+        if page.endswith("explore.py"):                     # one live QAOA run: 4 customers, p = 3
+            at.sidebar.button[0].click().run()
+            assert not at.exception and at.dataframe, page
 
 
 # ── baselines.py ──────────────────────────────────────────────────────────────
