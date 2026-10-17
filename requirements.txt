@@ -1,4 +1,7 @@
 numpy==1.26.4
+scipy==1.13.1
+autograd==1.8.0
 pennylane==0.44.1
+pennylane-lightning==0.44.0
 streamlit==1.37.1
 plotly==5.24.1

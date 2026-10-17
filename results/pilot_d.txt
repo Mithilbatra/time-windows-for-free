@@ -1,0 +1,12 @@
+n = 4, XY mixer, 10 instances: P(opt) (±95% CI) by depth; uniform state 0.0082
+              p = 1          p = 2          p = 3          p = 5          p = 8          p = 12   
+  E0      0.032±0.020  0.063±0.036  0.079±0.043  0.101±0.066  0.142±0.097  0.167±0.111   ground state = optimum in 40% of instances
+  E1      0.034±0.020  0.074±0.041  0.103±0.053  0.179±0.090  0.274±0.136  0.337±0.173   ground state = optimum in 83% of instances
+  E1+C    0.035±0.021  0.089±0.042  0.140±0.059  0.265±0.134  0.371±0.176  0.502±0.182   ground state = optimum in 98% of instances
+
+n = 5, XY mixer, 6 instances: P(opt) (±95% CI) by depth; uniform state 0.0006
+              p = 1          p = 2          p = 3          p = 5          p = 8          p = 12   
+  E0      0.003±0.002  0.007±0.004  0.013±0.006  0.018±0.007  0.031±0.019  0.054±0.042   ground state = optimum in 40% of instances
+  E1      0.003±0.002  0.009±0.006  0.016±0.010  0.024±0.016  0.042±0.026  0.066±0.036   ground state = optimum in 56% of instances
+  E1+C    0.003±0.002  0.010±0.005  0.018±0.009  0.036±0.017  0.079±0.043  0.146±0.094   ground state = optimum in 79% of instances
+

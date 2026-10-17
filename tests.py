@@ -4,9 +4,10 @@ import warnings
 
 import numpy as np
 import pennylane as qml
+from pennylane import numpy as pnp
 
 from baselines import SalehiQUBO, anneal, int_bits, int_to_bits
-from qaoa import TSPTWQAOACircuit, qubo_to_hamiltonian
+from qaoa import FastQAOA, TSPTWQAOACircuit, interp, qubo_to_hamiltonian
 from qubo import (QUBOBuilder, TSPTWInstance, all_routes, make_instance, route_penalty,
                   solve_exact, tw_terms)
 
@@ -109,6 +110,76 @@ def test_reported_energy_and_xy_subspace():
             assert np.isclose(probs[one_hot].sum(), 1)
         res = qc.optimize(steps=3, starts=2)
         assert len(res["start_energies"]) == 2 and res["best_energy"] == min(res["start_energies"])
+
+
+# ── FastQAOA ──────────────────────────────────────────────────────────────────
+
+def test_fast_simulator_matches_pennylane():
+    rng = np.random.default_rng(0)
+    for n, mixer, p, tw in [(3, "xy", 2, "E1+C"), (3, "x", 3, "E1"), (4, "xy", 3, "E1"), (4, "x", 2, "E1+C")]:
+        b = QUBOBuilder(tight_deadline(make_instance(n, 100 + n)), tw=tw)
+        qc, fq = TSPTWQAOACircuit(b, p=p, mixer=mixer), FastQAOA(b, mixer=mixer)
+        params = rng.uniform(0, 2.5, 2 * p)
+        full = np.zeros(2 ** (n * n), complex)                 # embed into all 2^(n²) states
+        full[(fq.bits.astype(int) * 2 ** np.arange(n * n - 1, -1, -1)).sum(1)] = fq.state(params)
+        assert np.allclose(full, qc.get_statevector(params), atol=1e-12)
+        loss = float(qc._cost_fn(params))
+        assert np.isclose(fq.energy(params), loss * qc.scale + qc.offset + qc.qubo_offset)
+        grad = qml.grad(qc._cost_fn)(pnp.array(params, requires_grad=True))
+        assert np.allclose(fq.loss_and_grad(params)[1], grad, atol=1e-10)
+
+
+def test_fast_gradient_matches_finite_differences():
+    b = QUBOBuilder(make_instance(3, 7))
+    x = np.array([0.3, 1.1, 0.7, 0.2, 0.9, 0.5])
+    for mixer in ("x", "xy"):
+        fq = FastQAOA(b, mixer=mixer)
+        fd = [(fq._loss(x + 1e-6 * e) - fq._loss(x - 1e-6 * e)) / 2e-6 for e in np.eye(6)]
+        assert np.allclose(fq.loss_and_grad(x)[1], fd, atol=1e-6)
+
+
+def test_route_masses_match_a_direct_sum():
+    inst = make_instance(3, 9)
+    b = QUBOBuilder(inst)
+    perms, feasible, cost = all_routes(inst)
+    optimal = feasible & np.isclose(cost, cost[feasible].min())
+    for mixer in ("x", "xy"):
+        fq = FastQAOA(b, mixer=mixer)
+        x = [0.4, 0.8, 0.3, 0.6]
+        pr = np.abs(fq.state(np.array(x))) ** 2
+        row = {tuple(bits.astype(int)): s for s, bits in enumerate(fq.bits)}
+        at = np.array([row[b.encode([0, *p])] for p in perms])          # basis state of each route
+        assert np.allclose(fq.route_masses(x), (pr[at].sum(), pr[at[feasible]].sum(), pr[at[optimal]].sum()))
+
+
+def test_ground_optimal_matches_route_enumeration():
+    for seed in range(8):
+        inst = make_instance(3, 300 + seed)
+        perms, feasible, cost = all_routes(inst)
+        optimal = feasible & np.isclose(cost, cost[feasible].min())
+        for tw in ("E0", "E1", "E1+C"):
+            b = QUBOBuilder(inst, tw=tw)
+            energy = np.array([b.energy(b.encode([0, *p])) for p in perms])   # the minimum is a valid route
+            assert np.isclose(FastQAOA(b, mixer="xy").ground_optimal(), optimal[np.isclose(energy, energy.min())].mean())
+
+
+def test_interp_and_optimisers():
+    assert np.allclose(interp([0.3, 0.8]), [0.3, 0.3, 0.8, 0.8])
+    assert np.allclose(interp([1.0, 3.0, 0.5, 0.1]), [1.0, 2.0, 3.0, 0.5, 0.3, 0.1])
+    b = QUBOBuilder(make_instance(3, 11))
+    x0 = np.array([0.7, 1.9, 2.4, 0.6])
+    for mixer in ("x", "xy"):
+        qc, fq = TSPTWQAOACircuit(b, p=2, mixer=mixer), FastQAOA(b, mixer=mixer)
+        opt, params, losses = qml.AdamOptimizer(stepsize=0.05), pnp.array(x0, requires_grad=True), []
+        for _ in range(15):                                   # PennyLane's Adam, step by step
+            params, loss = opt.step_and_cost(qc._cost_fn, params)
+            losses.append(float(loss))
+        assert np.isclose(fq.adam(x0, steps=15)[1], min(losses) * qc.scale + qc.offset + qc.qubo_offset)
+        x, e, _ = fq.lbfgs(x0)
+        assert e < fq.energy(x0) and np.linalg.norm(fq.loss_and_grad(x)[1]) < 1e-3
+        ladder = fq.ladder(3, starts=2)
+        assert sorted(ladder) == [1, 2, 3]
+        assert all(ladder[p + 1][1] <= fq.energy(interp(ladder[p][0])) + 1e-9 for p in (1, 2))
 
 
 # ── baselines.py ──────────────────────────────────────────────────────────────

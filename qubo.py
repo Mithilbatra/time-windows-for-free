@@ -83,10 +83,14 @@ class TSPTWInstance:
         return [v for v, a in zip(route[1:] + [0], self.arrivals(route)[1:]) if a > self.l[v]]
 
 
-def make_instance(n, seed=None):
+def make_instance(n, seed=None, width=None):
     """Random feasible instance, protocol of Salehi, Glos & Miszczak (2022) §4.1:
     travel costs U{1..10} (made metric by shortest-path closure), e_j ~ U{1..20},
     l_j ~ U{e_j..40}; resampled until at least one route is feasible.
+    width=w instead plants a tour: a random order is driven without waiting, and customer j
+    gets [a_j − u, a_j + u'] with u, u' ~ U{0..w}, a_j its arrival time (e_j ≥ 0).  The
+    planted tour is always feasible; w = 0 is the tightest, larger w loosens the windows,
+    and one seed gives the same distances and tour at every w, with nested windows.
     seed may be an int or a np.random.Generator (drawn from in place)."""
     rng = np.random.default_rng(seed)
     while True:
@@ -96,6 +100,13 @@ def make_instance(n, seed=None):
         d = d + d.T
         for k in range(N):                    # Floyd–Warshall
             d = np.minimum(d, d[:, [k]] + d[[k], :])
+        if width is not None:
+            tour = rng.permutation(n) + 1
+            a = np.cumsum(d[np.r_[0, tour[:-1]], tour])
+            early, late = (np.floor(rng.random(n) * (width + 1)) for _ in range(2))
+            e, l = np.zeros(N), np.full(N, np.inf)
+            e[tour], l[tour] = np.maximum(0, a - early), a + late
+            return TSPTWInstance(None, np.c_[e, l], travel_times=d)
         e = np.r_[0, rng.integers(1, 21, size=n)].astype(float)
         l = np.r_[np.inf, [rng.integers(ei, 41) for ei in e[1:]]].astype(float)
         inst = TSPTWInstance(None, np.c_[e, l], travel_times=d)

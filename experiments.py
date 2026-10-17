@@ -21,6 +21,13 @@ E2 (baselines.py), with the penalty weights tuned the same way for every encodin
 
 P(opt) = fraction of reads that end in an optimal on-time route.  Writes results/sa.csv.
 Run:  python experiments.py | tee results/sa_summary.txt      (≈ 45 min on 10 cores)
+
+The tightness sweep (below main) repeats this on planted-window instances of five widths,
+re-tuning every encoding's weights at each width:
+Run:  python experiments.py tightness | tee results/sa_tightness_summary.txt   (≈ 1 h on 6 cores)
+
+Circuit cost of each encoding (qubits, two-qubit terms):
+Run:  python experiments.py resources | tee results/resources.txt
 """
 import os
 for _var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
@@ -28,6 +35,7 @@ for _var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
 
 import csv
 import itertools
+import sys
 from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
@@ -58,9 +66,11 @@ def grid(encoding):
 
 
 def run(job):
-    """One SA run: (phase, encoding, n, seed, p1, p2, sweeps) → result row."""
-    phase, encoding, n, seed, p1, p2, sweeps = job
-    inst = make_instance(n, seed)
+    """One SA run: (phase, encoding, n, seed, p1, p2, sweeps[, width]) → result row.
+    With a width the instance has planted windows of that width (qubo.make_instance)."""
+    phase, encoding, n, seed, p1, p2, sweeps, *rest = job
+    width = rest[0] if rest else None
+    inst = make_instance(n, seed, width)
     _, feasible, cost = all_routes(inst)
     opt = cost[feasible].min()
     b = builder(encoding, inst, p1, p2)
@@ -69,8 +79,12 @@ def run(job):
     routes = [b.decode(x) for x in samples]
     on_time = np.array([v and not inst.late_stops(r) for v, r in zip(valid, routes)])
     optimal = np.array([t and np.isclose(inst.tour_cost(r), opt) for t, r in zip(on_time, routes)])
-    return dict(phase=phase, encoding=encoding, n=n, seed=seed, p1=p1, p2=p2, sweeps=sweeps,
-                qubits=b.N, p_valid=valid.mean(), p_on_time=on_time.mean(), p_opt=optimal.mean())
+    row = dict(phase=phase, encoding=encoding, n=n, seed=seed, p1=p1, p2=p2, sweeps=sweeps,
+               qubits=b.N, p_valid=valid.mean(), p_on_time=on_time.mean(), p_opt=optimal.mean())
+    if width is not None:
+        row.update(width=width, feasible_frac=feasible.mean(),
+                   binding=not feasible[np.isclose(cost, cost.min())].any())   # TSP optimum is late
+    return row
 
 
 def main():
@@ -133,5 +147,86 @@ def main():
         print()
 
 
+WIDTHS = (0, 6, 12, 24, 48)                  # planted-window half-widths, tight → loose
+SWEEP_P1 = (1, 2, 5)
+SWEEP_P2 = (0.25, 1, 5, 20, 100, 1000, float("inf"))
+SWEEP_TUNE = range(30000, 30005)
+SWEEP_EVAL = range(40000, 40020)
+E2_BITS = {3: 60, 4: 102, 5: 166}             # about how many variables E2 needs
+
+
+def tightness(workers=6):
+    """How the encodings fare as the windows tighten.  Planted-window instances (width
+    from WIDTHS, same distances and tour at every width); at each (width, size) every
+    encoding gets its own (p1, p2), chosen on 5 tuning instances from a coarser grid than
+    main()'s, then 20 fresh instances at 10000 sweeps.  Writes results/sa_tightness.csv."""
+    def pairs(enc):
+        return itertools.product(SWEEP_P1, SWEEP_P2 if enc != "E0" else (1,))
+
+    def cost(job):                            # biggest first, for load balance
+        return job[6] * (E2_BITS[job[2]] if job[1] == "E2" else job[2] ** 2)
+
+    tune = sorted([("tune", enc, n, s, p1, p2, 2000, w) for w in WIDTHS for enc in ENCODINGS
+                   for n in SIZES for s in SWEEP_TUNE for p1, p2 in pairs(enc)], key=cost, reverse=True)
+    os.makedirs("results", exist_ok=True)
+
+    def save(rows):
+        with open("results/sa_tightness.csv", "w", newline="") as f:
+            out = csv.DictWriter(f, fieldnames=list(rows[0]))
+            out.writeheader()
+            out.writerows(rows)
+
+    with ProcessPoolExecutor(workers) as pool:
+        rows = list(pool.map(run, tune, chunksize=4))
+        save(rows)
+        best = {}
+        for w, enc, n in itertools.product(WIDTHS, ENCODINGS, SIZES):
+            scores = {}
+            for r in rows:
+                if (r["width"], r["encoding"], r["n"]) == (w, enc, n):
+                    scores.setdefault((r["p1"], r["p2"]), []).append(
+                        (r["p_opt"], r["p_on_time"], r["p_valid"]))
+            best[w, enc, n] = max(scores, key=lambda k: tuple(np.mean(scores[k], axis=0)))
+        evaluate = sorted([("eval", enc, n, s, *best[w, enc, n], 10000, w) for w in WIDTHS
+                           for enc in ENCODINGS for n in SIZES for s in SWEEP_EVAL], key=cost, reverse=True)
+        rows += list(pool.map(run, evaluate, chunksize=2))
+    save(rows)
+
+    def cell(w, enc, n, key):
+        return np.mean([r[key] for r in rows if r["phase"] == "eval" and
+                        (r["width"], r["encoding"], r["n"]) == (w, enc, n)])
+
+    for n in SIZES:
+        print(f"n = {n} customers, planted windows, weights re-tuned at every width "
+              f"(5 tuning + 20 fresh instances, 100 reads x 10000 sweeps)")
+        print(f"  {'width':>5} {'feasible':>9} {'binding':>8} | P(opt):"
+              + "".join(f"{enc:>7}" for enc in ENCODINGS) + " | P(on time):"
+              + "".join(f"{enc:>7}" for enc in ENCODINGS))
+        for w in WIDTHS:
+            print(f"  {w:>5} {cell(w, 'E0', n, 'feasible_frac'):9.3f} {cell(w, 'E0', n, 'binding'):8.2f} |"
+                  f"{'':8}" + "".join(f"{cell(w, enc, n, 'p_opt'):7.3f}" for enc in ENCODINGS)
+                  + f" |{'':12}" + "".join(f"{cell(w, enc, n, 'p_on_time'):7.3f}" for enc in ENCODINGS))
+        print()
+
+
+def resources():
+    """What each encoding costs a QAOA circuit: qubits and two-qubit terms (every nonzero
+    off-diagonal entry of Q is one ZZ rotation, two CNOTs, per layer), means over the 20
+    evaluation instances, with p1 = p2 = 1.  Our encodings with the XY mixer drop the
+    each-customer-once penalty (zero on the states the mixer reaches)."""
+    print(f"{'n':>2} {'enc':5} {'qubits':>7} {'ZZ terms, X mixer':>18} {'ZZ terms, XY mixer':>19}")
+    for n in SIZES:
+        for enc in ENCODINGS:
+            qubits, zz_x, zz_xy = [], [], []
+            for s in EVAL_SEEDS:
+                b = builder(enc, make_instance(n, s), 1, 1)
+                qubits.append(b.N)
+                zz_x.append(np.count_nonzero(np.triu(b.Q, 1)))
+                zz_xy.append(np.count_nonzero(np.triu(b.qubo(rows=False)[0], 1)) if enc != "E2" else np.nan)
+            xy = f"{np.mean(zz_xy):19.1f}" if enc != "E2" else f"{'-':>19}"
+            print(f"{n:>2} {enc:5} {np.mean(qubits):7.0f} {np.mean(zz_x):18.1f} {xy}")
+        print()
+
+
 if __name__ == "__main__":
-    main()
+    {"tightness": tightness, "resources": resources}.get(sys.argv[1] if sys.argv[1:] else "", main)()
