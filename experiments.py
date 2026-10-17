@@ -61,8 +61,27 @@ def builder(encoding, inst, p1, p2):
     return QUBOBuilder(inst, A=A, P=P, tw=encoding)
 
 
-def grid(encoding):
-    return itertools.product(P1, P2 if encoding != "E0" else (1,))   # E0 has no window term
+def grid(encoding, p1s=P1, p2s=P2):
+    return itertools.product(p1s, p2s if encoding != "E0" else (1,))   # E0 has no window term
+
+
+def best_pairs(rows, *fields):
+    """Values of `fields` → the (p1, p2) whose tuning rows have the highest mean
+    (P(opt), P(on time), P(valid)), compared in that order."""
+    scores = {}
+    for r in rows:
+        if r["phase"] == "tune":
+            scores.setdefault(tuple(r[f] for f in fields), {}).setdefault((r["p1"], r["p2"]), []).append(
+                (r["p_opt"], r["p_on_time"], r["p_valid"]))
+    return {k: max(v, key=lambda pw: tuple(np.mean(v[pw], axis=0))) for k, v in scores.items()}
+
+
+def save(rows, path):
+    os.makedirs("results", exist_ok=True)
+    with open(path, "w", newline="") as f:
+        out = csv.DictWriter(f, fieldnames=list(rows[0]))
+        out.writeheader()
+        out.writerows(rows)
 
 
 def run(job):
@@ -94,26 +113,14 @@ def main():
               for n in SIZES for s in ORACLE_SEEDS for p1, p2 in grid("E2")]
     with ProcessPoolExecutor() as pool:
         rows = list(pool.map(run, tune + oracle, chunksize=4))
-        best = {}
-        for enc, n in itertools.product(ENCODINGS, SIZES):
-            scores = {}
-            for r in rows:
-                if r["phase"] == "tune" and r["encoding"] == enc and r["n"] == n:
-                    scores.setdefault((r["p1"], r["p2"]), []).append(
-                        (r["p_opt"], r["p_on_time"], r["p_valid"]))
-            best[enc, n] = max(scores, key=lambda k: tuple(np.mean(scores[k], axis=0)))
+        best = best_pairs(rows, "encoding", "n")
         budget = [("budget", enc, n, s, *best[enc, n], sweeps)
                   for sweeps in (50000, 2000) for enc in ("E2", "E1") for n in SIZES[::-1]
                   for s in ORACLE_SEEDS]                     # longest jobs first
         evaluate = [("eval", enc, n, s, *best[enc, n], 10000)
                     for enc in ENCODINGS for n in SIZES for s in EVAL_SEEDS]
         rows += list(pool.map(run, budget + evaluate))
-
-    os.makedirs("results", exist_ok=True)
-    with open("results/sa.csv", "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0]))
-        w.writeheader()
-        w.writerows(rows)
+    save(rows, "results/sa.csv")
 
     def mean(phase, enc, n, key, **match):
         vals = [r[key] for r in rows if r["phase"] == phase and r["encoding"] == enc and r["n"] == n
@@ -152,7 +159,6 @@ SWEEP_P1 = (1, 2, 5)
 SWEEP_P2 = (0.25, 1, 5, 20, 100, 1000, float("inf"))
 SWEEP_TUNE = range(30000, 30005)
 SWEEP_EVAL = range(40000, 40020)
-E2_BITS = {3: 60, 4: 102, 5: 166}             # about how many variables E2 needs
 
 
 def tightness(workers=6):
@@ -160,37 +166,19 @@ def tightness(workers=6):
     from WIDTHS, same distances and tour at every width); at each (width, size) every
     encoding gets its own (p1, p2), chosen on 5 tuning instances from a coarser grid than
     main()'s, then 20 fresh instances at 10000 sweeps.  Writes results/sa_tightness.csv."""
-    def pairs(enc):
-        return itertools.product(SWEEP_P1, SWEEP_P2 if enc != "E0" else (1,))
+    def biggest_first(jobs):                  # E2 (most variables), then larger n: load balance
+        return sorted(jobs, key=lambda j: (j[1] == "E2", j[2]), reverse=True)
 
-    def cost(job):                            # biggest first, for load balance
-        return job[6] * (E2_BITS[job[2]] if job[1] == "E2" else job[2] ** 2)
-
-    tune = sorted([("tune", enc, n, s, p1, p2, 2000, w) for w in WIDTHS for enc in ENCODINGS
-                   for n in SIZES for s in SWEEP_TUNE for p1, p2 in pairs(enc)], key=cost, reverse=True)
-    os.makedirs("results", exist_ok=True)
-
-    def save(rows):
-        with open("results/sa_tightness.csv", "w", newline="") as f:
-            out = csv.DictWriter(f, fieldnames=list(rows[0]))
-            out.writeheader()
-            out.writerows(rows)
-
+    tune = biggest_first([("tune", enc, n, s, p1, p2, 2000, w) for w in WIDTHS for enc in ENCODINGS
+                          for n in SIZES for s in SWEEP_TUNE for p1, p2 in grid(enc, SWEEP_P1, SWEEP_P2)])
     with ProcessPoolExecutor(workers) as pool:
         rows = list(pool.map(run, tune, chunksize=4))
-        save(rows)
-        best = {}
-        for w, enc, n in itertools.product(WIDTHS, ENCODINGS, SIZES):
-            scores = {}
-            for r in rows:
-                if (r["width"], r["encoding"], r["n"]) == (w, enc, n):
-                    scores.setdefault((r["p1"], r["p2"]), []).append(
-                        (r["p_opt"], r["p_on_time"], r["p_valid"]))
-            best[w, enc, n] = max(scores, key=lambda k: tuple(np.mean(scores[k], axis=0)))
-        evaluate = sorted([("eval", enc, n, s, *best[w, enc, n], 10000, w) for w in WIDTHS
-                           for enc in ENCODINGS for n in SIZES for s in SWEEP_EVAL], key=cost, reverse=True)
+        save(rows, "results/sa_tightness.csv")
+        best = best_pairs(rows, "width", "encoding", "n")
+        evaluate = biggest_first([("eval", enc, n, s, *best[w, enc, n], 10000, w) for w in WIDTHS
+                                  for enc in ENCODINGS for n in SIZES for s in SWEEP_EVAL])
         rows += list(pool.map(run, evaluate, chunksize=2))
-    save(rows)
+    save(rows, "results/sa_tightness.csv")
 
     def cell(w, enc, n, key):
         return np.mean([r[key] for r in rows if r["phase"] == "eval" and

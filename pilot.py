@@ -24,7 +24,8 @@ from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
-from experiments import builder
+from experiments import builder, save
+from grid import METHOD, job
 from qaoa import FastQAOA
 from qubo import make_instance
 
@@ -32,48 +33,10 @@ WORKERS = 8                                       # the machine has 10 cores
 DEPTHS = (1, 2, 3, 5)
 
 
-def optimise(fq, method, depths):
-    """{p: (params, function evaluations)} for every p in depths."""
-    if method.startswith("ladder"):                   # "ladder" or "ladder+R": R random restarts per depth
-        ladder = fq.ladder(max(depths), starts=5, restarts=int(method[7:] or 0))
-        return {p: (ladder[p][0], ladder[p][2]) for p in depths}
-    out = {}
-    for p in depths:
-        if method.startswith("adam"):
-            steps, starts = map(int, method[4:].split("x"))
-            x = min((fq.adam(fq.random_start(p), steps) for _ in range(starts)), key=lambda r: r[1])[0]
-            out[p] = (x, steps * starts)
-        else:                                         # lbfgs5
-            runs = [fq.lbfgs(fq.random_start(p)) for _ in range(int(method[5:]))]
-            out[p] = (min(runs, key=lambda r: r[1])[0], sum(r[2] for r in runs))
-    return out
-
-
-def job(args):
-    """One instance, one optimiser: a result row for each depth (DEPTHS unless the job lists some)."""
-    stage, n, mixer, enc, p1, p2, seed, method, *depths = args
-    fq = FastQAOA(builder(enc, make_instance(n, seed), p1, p2), mixer=mixer, seed=seed)
-    e_uniform, e_ground = fq.energy(np.zeros(0)), fq.energies.min()
-    uniform = fq.route_masses(np.zeros(0))
-    rows = []
-    for p, (x, nfev) in optimise(fq, method, tuple(depths) or DEPTHS).items():
-        valid, on_time, optimal = fq.route_masses(x)
-        e = fq.energy(x)
-        rows.append(dict(stage=stage, n=n, mixer=mixer, enc=enc, p1=p1, p2=p2, seed=seed,
-                         method=method, p=p, nfev=nfev, energy=e,
-                         gap_closed=(e_uniform - e) / (e_uniform - e_ground), p_valid=valid,
-                         p_on_time=on_time, p_opt=optimal, uniform_p_opt=uniform[2]))
-    return rows
-
-
 def run_jobs(jobs, path):
     with ProcessPoolExecutor(WORKERS) as pool:
         rows = [row for rows in pool.map(job, jobs) for row in rows]
-    os.makedirs("results", exist_ok=True)
-    with open(path, "w", newline="") as f:
-        out = csv.DictWriter(f, fieldnames=list(rows[0]))
-        out.writeheader()
-        out.writerows(rows)
+    save(rows, path)
     return rows
 
 
@@ -81,7 +44,7 @@ def stage_a():
     cases = [(4, "x", range(60000, 60004)), (4, "xy", range(60000, 60008)),
              (3, "x", range(60100, 60110)), (3, "xy", range(60100, 60110))]
     methods = ("adam60x3", "adam200x5", "lbfgs5", "ladder", "ladder+3")
-    rows = run_jobs([("A", n, mixer, "E1", 1, 1, s, m) for n, mixer, seeds in cases
+    rows = run_jobs([("A", n, mixer, "E1", 1, 1, s, m, *DEPTHS) for n, mixer, seeds in cases
                      for s in seeds for m in methods], "results/pilot_a.csv")
     for n, mixer, seeds in cases:
         sub = [r for r in rows if r["n"] == n and r["mixer"] == mixer]
@@ -98,7 +61,6 @@ def stage_a():
         print()
 
 
-METHOD = "ladder+3"                               # stage A's pick
 GRID1, GRID2 = (0.5, 1, 2, 5), (0.25, 1, 4)
 CASES = [(3, "xy", 10), (3, "x", 10), (4, "xy", 8), (4, "x", 4)]     # size, mixer, instances
 
@@ -108,7 +70,7 @@ def pairs(enc):
 
 
 def stage_b():
-    rows = run_jobs([("B", n, mixer, enc, p1, p2, 61000 + i, METHOD) for n, mixer, m in CASES[::-1]
+    rows = run_jobs([("B", n, mixer, enc, p1, p2, 61000 + i, METHOD, *DEPTHS) for n, mixer, m in CASES[::-1]
                      for enc in ("E0", "E1", "E1+C") for p1, p2 in pairs(enc) for i in range(m)],
                     "results/pilot_b.csv")
     for n, mixer, m in CASES:
@@ -136,7 +98,7 @@ def stage_c():
                 best[n, mixer, enc, p] = max(score, key=score.get)
     chosen = sorted({(n, mixer, enc, pw) for (n, mixer, enc, _), pw in best.items()})
     sizes = {(n, mixer): 20 if (n, mixer) != (4, "x") else 8 for n, mixer, _ in CASES}
-    rows = run_jobs([("C", n, mixer, enc, *pw, 62000 + i, METHOD) for n, mixer, enc, pw in chosen[::-1]
+    rows = run_jobs([("C", n, mixer, enc, *pw, 62000 + i, METHOD, *DEPTHS) for n, mixer, enc, pw in chosen[::-1]
                      for i in range(sizes[n, mixer])], "results/pilot_c.csv")
     rows = [r for r in rows if best[r["n"], r["mixer"], r["enc"], r["p"]] == (r["p1"], r["p2"])]
     for n in (3, 4):
@@ -159,7 +121,7 @@ def stage_c():
 
 def stage_d():
     """P(opt) of the XY circuit up to p = 12.  Alongside: how often the Hamiltonian's ground state
-    is the TSPTW optimum, the level P(opt) can reach as p grows."""
+    is the TSPTW optimum, which is where P(opt) heads as p → ∞ (not a bound at finite p)."""
     weights = {"E0": (1, 1), "E1": (2, 0.25), "E1+C": (1, 1)}         # stage C's picks for XY
     deep = (1, 2, 3, 5, 8, 12)
     cases = [(4, range(63000, 63010)), (5, range(63100, 63106))]

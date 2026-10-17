@@ -103,6 +103,7 @@ def make_instance(n, seed=None, width=None):
         if width is not None:
             tour = rng.permutation(n) + 1
             a = np.cumsum(d[np.r_[0, tour[:-1]], tour])
+            # not rng.integers: it draws a width-dependent amount, which would break the nesting
             early, late = (np.floor(rng.random(n) * (width + 1)) for _ in range(2))
             e, l = np.zeros(N), np.full(N, np.inf)
             e[tour], l[tour] = np.maximum(0, a - early), a + late

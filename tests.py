@@ -1,5 +1,9 @@
 """Self-checks.   Run:  python tests.py   (or: pytest tests.py)"""
+import contextlib
+import io
 import itertools
+import os
+import tempfile
 import warnings
 
 import numpy as np
@@ -180,6 +184,53 @@ def test_interp_and_optimisers():
         ladder = fq.ladder(3, starts=2)
         assert sorted(ladder) == [1, 2, 3]
         assert all(ladder[p + 1][1] <= fq.energy(interp(ladder[p][0])) + 1e-9 for p in (1, 2))
+
+
+# ── grid.py ───────────────────────────────────────────────────────────────────
+
+def test_grid_tunes_evaluates_and_resumes():
+    import grid
+    names = ("PATH", "CASES", "P1", "P2", "N_TUNE", "N_EVAL", "TUNE_DEPTH", "DEPTH")
+    saved = {k: getattr(grid, k) for k in names}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            grid.PATH = os.path.join(tmp, "grid.csv")
+            grid.CASES, grid.P1, grid.P2 = [("xy", 3)], (1, 2), (0.25, 1)
+            grid.N_TUNE, grid.N_EVAL, grid.TUNE_DEPTH, grid.DEPTH = {("xy", 3): 2}, {("xy", 3): 2}, 2, 3
+            grid.run(workers=1)
+            rows = grid.load()
+            tune = [r for r in rows if r["stage"] == "tune"]
+            ev = [r for r in rows if r["stage"] == "eval"]
+            assert len(tune) == (2 + 4 + 4) * 2 * 2 and len(ev) == 3 * 2 * 3       # pairs x seeds x depths
+            best = grid.best_weights(rows)
+            for enc in grid.ENCODINGS:
+                mean = {pw: np.mean([r["p_opt"] for r in tune if (r["enc"], r["p1"], r["p2"]) == (enc, *pw)])
+                        for pw in grid.pairs(enc)}
+                assert mean[best["xy", 3, enc]] == max(mean.values())
+                assert {(r["p1"], r["p2"]) for r in ev if r["enc"] == enc} == {best["xy", 3, enc]}
+            grid.run(workers=1)
+            assert len(grid.load()) == len(rows)                                  # nothing left to do
+            lines = open(grid.PATH).read().splitlines()
+            open(grid.PATH, "w").write("\n".join(lines[:-2]) + "\n")               # an eval job cut off mid-write
+            grid.run(workers=1)
+            again, before = grid.load(), {(grid.key(r), r["p"]): r for r in rows}
+            assert len(again) == len(rows) and {(grid.key(r), r["p"]) for r in again} == set(before)   # none doubled
+            assert all(np.isclose(r[f], before[grid.key(r), r["p"]][f])                              # redone, same numbers
+                       for r in again for f in ("energy", "p_valid", "p_on_time", "p_opt"))
+
+            def summary():
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    grid.summary()
+                return out.getvalue()
+            text = summary()
+            assert "n = 3, XY mixer: 2 fresh instances" in text
+            stale = [dict(r, p1=99.0, p_opt=0.0, p_on_time=0.0) for r in ev]   # rows left by other weights
+            grid.write(stale)
+            assert summary() == text                                  # are ignored
+    finally:
+        for k, v in saved.items():
+            setattr(grid, k, v)
 
 
 # ── baselines.py ──────────────────────────────────────────────────────────────

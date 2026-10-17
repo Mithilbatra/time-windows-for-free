@@ -330,7 +330,16 @@ class FastQAOA:
         self.D = (xQx - self.offset) / self.scale                   # diagonal of the normalised H_C
         self.psi0 = np.full(len(self.bits), len(self.bits) ** -0.5, dtype=complex)
         self._vg = value_and_grad(self._loss)
-        self._flag_cache = None
+
+        # which basis states are valid routes, on-time routes and optimal on-time routes
+        b = self.bits.reshape(-1, n, n)                              # [state, customer, position]
+        self.valid = (b.sum(2) == 1).all(1) & (b.sum(1) == 1).all(1)
+        perms, feasible, cost = all_routes(builder.inst)
+        index = {tuple(p): i for i, p in enumerate(perms)}
+        idx = [index[tuple(np.argsort(np.argmax(s, axis=1)) + 1)] for s in b[self.valid]]
+        self.on_time, self.optimal = np.zeros(len(b), bool), np.zeros(len(b), bool)
+        self.on_time[self.valid] = feasible[idx]
+        self.optimal[self.valid] = feasible[idx] & np.isclose(cost[idx], cost[feasible].min())
 
     # ── simulation ───────────────────────────────────────────────────────────
 
@@ -373,39 +382,25 @@ class FastQAOA:
         """⟨H_C⟩ in normalised units and its exact gradient."""
         return self._vg(np.asarray(params, dtype=float))
 
-    def energy(self, params):
-        """Expected QUBO energy."""
-        return float(self._loss(np.asarray(params, dtype=float))) * self.scale + self.offset + self.qubo_offset
-
     def to_energy(self, loss):
         return loss * self.scale + self.offset + self.qubo_offset
+
+    def energy(self, params):
+        """Expected QUBO energy."""
+        return self.to_energy(float(self._loss(np.asarray(params, dtype=float))))
 
     # ── what the final state says about routes ────────────────────────────────
 
     def route_masses(self, params):
         """(P(valid route), P(valid and on time), P(optimal on-time route))."""
-        if self._flag_cache is None:
-            n, inst = self.n, self.builder.inst
-            b = self.bits.reshape(-1, n, n)                          # [state, customer, position]
-            valid = (b.sum(2) == 1).all(1) & (b.sum(1) == 1).all(1)
-            perms, feasible, cost = all_routes(inst)
-            key = lambda orders: orders @ (n + 1) ** np.arange(n)
-            by_key = np.argsort(key(perms))
-            seq = np.argsort(np.argmax(b[valid], axis=2), axis=1) + 1   # customer at each position
-            idx = by_key[np.searchsorted(key(perms)[by_key], key(seq))]
-            on_time, optimal = np.zeros(len(b), bool), np.zeros(len(b), bool)
-            on_time[valid] = feasible[idx]
-            optimal[valid] = feasible[idx] & np.isclose(cost[idx], cost[feasible].min())
-            self._flag_cache = valid, on_time, optimal
         pr = np.abs(self.state(np.asarray(params, dtype=float))) ** 2
-        return tuple(float(pr[mask].sum()) for mask in self._flag_cache)
+        return float(pr[self.valid].sum()), float(pr[self.on_time].sum()), float(pr[self.optimal].sum())
 
     def ground_optimal(self):
         """Share of the ground states (lowest-energy basis states) that are optimal on-time
-        routes.  For a unique ground state it is the limit of P(opt) as p → ∞: 1 if the
-        Hamiltonian's minimum is the TSPTW optimum, 0 if an infeasible route undercuts it."""
-        self.route_masses(np.zeros(0))
-        return float(self._flag_cache[2][np.isclose(self.energies, self.energies.min())].mean())
+        routes.  With a unique ground state this is where P(opt) goes as p → ∞ (1 or 0); at
+        finite p it is not a bound: P(opt) can be large when the optimum is an excited state."""
+        return float(self.optimal[np.isclose(self.energies, self.energies.min())].mean())
 
     # ── optimisers ───────────────────────────────────────────────────────────
 
