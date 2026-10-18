@@ -11,7 +11,7 @@ import numpy as np
 import pennylane as qml
 from pennylane import numpy as pnp
 
-from baselines import SalehiQUBO, anneal, int_bits, int_to_bits
+from baselines import SalehiQUBO, UnbalancedQUBO, anneal, int_bits, int_to_bits
 from qaoa import FastQAOA, TSPTWQAOACircuit, interp, qubo_to_hamiltonian
 from qubo import (QUBOBuilder, TSPTWInstance, all_routes, make_instance, route_penalty,
                   solve_exact, tw_terms)
@@ -309,6 +309,34 @@ def test_e2_matrix_matches_formula_on_random_states():
             H_TW += (due_e - A - val("w", i) + val("se", i)) ** 2 + (A - due_l + val("sl", i)) ** 2
         H_C = sum(c[u, v] * x(i, u, v) for i in range(1, n + 2) for u, v in q.steps[i])
         assert np.isclose(q.energy(bits), q.A * H_R + q.P * H_TW + q.B * H_C)
+
+
+def test_e2_up_drops_the_slacks_and_scores_routes_by_the_unbalanced_penalty():
+    """Not a soundness test (E2-UP is not exact): the QUBO matches −λ1·h + λ2·h² per window
+    inequality, on every route, feasible or not, and window_penalty is its least value over ω."""
+    lam1, lam2 = 1.0, 0.05
+
+    def zeta(h):
+        return -lam1 * h + lam2 * h ** 2
+
+    for n, seed in itertools.product((3, 4), range(3)):
+        inst = make_instance(n, seed)
+        e2, up = SalehiQUBO(inst), UnbalancedQUBO(inst, lam1=lam1, lam2=lam2)
+        assert up.N == e2.N - sum(len(v) for (name, _), v in e2.ints.items() if name != "w")
+        waits = [var for (name, _), v in up.ints.items() for _, var in v]
+        perms, feasible, cost = all_routes(inst)
+        for p, c in zip(perms, cost):
+            route = [0, *p]
+            s = inst.arrivals(route)                     # service starts, least waiting
+            pen = sum(zeta(s[k] - inst.e[v]) + zeta(inst.l[v] - s[k - 1] - inst.d[route[k - 1], v])
+                      for k, v in enumerate(route[1:], 1))
+            bits = np.array(up.encode(route))
+            assert up.is_valid_route(bits) and np.isclose(up.energy(bits), up.B * c + pen)
+            if n == 3:                                   # every waiting-time setting (2^8 at most)
+                states = np.repeat(bits[None], 2 ** len(waits), axis=0)
+                states[:, waits] = list(itertools.product((0, 1), repeat=len(waits)))
+                least = np.einsum("si,ij,sj->s", states, up.Q, states).min() + up.offset
+                assert np.isclose(least, up.B * c + up.window_penalty(route))
 
 
 def test_anneal_finds_the_ground_state_and_ends_in_local_minima():

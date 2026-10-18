@@ -5,6 +5,8 @@ E2      Edge-based TSPTW QUBO of Salehi, Glos & Miszczak (2022, §3.1; Eqs. 5, 1
         18–24): exact time windows through binary-encoded waiting times and slacks.
         It needs far more qubits than QAOA simulation allows (at most n³ − 2n² + 3n + 3nδ,
         vs n² for qubo.QUBOBuilder), so it is solved with simulated annealing only.
+E2-UP   E2 with its two slack registers per stop replaced by Montañez-Barrera et al.'s (2024)
+        unbalanced penalization: slack-free, but not exact (UnbalancedQUBO).
 anneal  Single-bit-flip simulated annealing for any upper-triangular QUBO (ours or E2).
 """
 
@@ -46,6 +48,7 @@ class SalehiQUBO:
     Eq. 11 differs by a constant).  As in the paper: integer data, departure at time 0 and
     no depot deadline.
     """
+    lam = None                                # (λ1, λ2): E2-UP's unbalanced penalty (UnbalancedQUBO)
 
     def __init__(self, instance, A=1.0, B=1.0, P=1.0):
         inst = instance
@@ -75,7 +78,7 @@ class SalehiQUBO:
             bounds = (("w", e[1:].max() - A_lb),          # Eq. 21
                       ("se", (l[1:] - e[1:]).max()),      # Eq. 20
                       ("sl", l[1:].max() - A_lb))         # Eq. 19
-            for name, U in bounds:
+            for name, U in bounds[:1] if self.lam else bounds:    # E2-UP keeps only ω_i
                 self.ints[name, i] = []
                 for b, weight in enumerate(int_bits(U)):
                     self.var[name, i, b] = len(self.var)
@@ -110,6 +113,13 @@ class SalehiQUBO:
         def neg(terms):
             return [(-coef, var) for coef, var in terms]
 
+        def unbalanced(terms):
+            """−λ1·h + λ2·h²  for h = Σ coef·var  (Montañez-Barrera et al. Eq. 25)"""
+            lam1, lam2 = self.lam
+            square(terms, 0, lam2)
+            for coef, var in terms:
+                add(var, var, -lam1 * coef)
+
         # H_R: one edge per step, each customer left once, consecutive edges chain up
         for i in range(1, n + 2):
             square([(1, x(i, u, v)) for u, v in self.steps[i]], -1, self.A)
@@ -132,8 +142,12 @@ class SalehiQUBO:
             arrival = arrival + [(c[u, v], x(i, u, v)) for u, v in self.steps[i]]
             due_e = [(e[v], x(i, u, v)) for u, v in self.steps[i]]
             due_l = [(l[v], x(i, u, v)) for u, v in self.steps[i]]
-            square(due_e + neg(arrival) + neg(self.ints["w", i]) + self.ints["se", i], 0, self.P)
-            square(arrival + neg(due_l) + self.ints["sl", i], 0, self.P)
+            if self.lam:
+                unbalanced(arrival + self.ints["w", i] + neg(due_e))      # h_e = A_i + ω_i − e_v
+                unbalanced(due_l + neg(arrival))                          # h_l = l_v − A_i
+            else:
+                square(due_e + neg(arrival) + neg(self.ints["w", i]) + self.ints["se", i], 0, self.P)
+                square(arrival + neg(due_l) + self.ints["sl", i], 0, self.P)
 
         # H_C: tour cost
         for i in range(1, n + 2):
@@ -167,7 +181,8 @@ class SalehiQUBO:
                 and sorted(route[1:]) == list(range(1, self.n + 1)))
 
     def encode(self, route):
-        """Bits of a feasible route with the least waiting; ValueError if it misses a window."""
+        """Bits of a feasible route with the least waiting; ValueError if it misses a window
+        (E2-UP has no slacks, so it encodes any route)."""
         n, c, e, l = self.n, self.inst.d, self.inst.e, self.inst.l
         stops = list(route) + [0]
         bits = np.zeros(self.N, dtype=int)
@@ -179,11 +194,59 @@ class SalehiQUBO:
             a += c[stops[i - 1], v]                   # A_i: arrival, earlier waits included
             wait = max(0.0, e[v] - a)
             for name, y in (("w", wait), ("se", a + wait - e[v]), ("sl", l[v] - a)):
+                if (name, i) not in self.ints:
+                    continue
                 weights = [weight for weight, _ in self.ints[name, i]]
                 for (_, var), bit in zip(self.ints[name, i], int_to_bits(int(round(y)), weights)):
                     bits[var] = bit
             a += wait
         return tuple(bits)
+
+
+class UnbalancedQUBO(SalehiQUBO):
+    """
+    E2-UP:  H = A·H_R + Σ_i [ζ(h_e,i) + ζ(h_l,i)] + B·H_C,  E2 (SalehiQUBO) with its slack
+    registers ξe_i, ξl_i dropped and each stop's two window inequalities penalised by the
+    unbalanced penalization of Montañez-Barrera, Willsch, Maldonado-Romo & Michielsen
+    (Quantum Sci. Technol. 9:025022, 2024; arXiv 2211.13914, Eqs. 23 and 25):
+      h(x) ≥ 0   →   ζ(x) = −λ1·h(x) + λ2·h(x)²       (a quadratic fit to e^−h, Eq. 24)
+      h_e,i = A_i + ω_i − e_v ≥ 0     served no earlier than the window opens
+      h_l,i = l_v − A_i ≥ 0           arrived no later than it closes
+    with A_i the arrival (Salehi et al. Eq. 13) and the waiting bits ω_i kept from E2: these are
+    the two inequalities E2 closes with ξe_i and ξl_i, so E2-UP differs from E2 only in how
+    they are penalised.  λ1, λ2 are absolute (cost units, B = 1), the same pair for every
+    inequality, as the paper uses one pair per problem (its Table I).
+    Not exact: on the feasible side ζ < 0 for 0 < h < λ1/λ2 (least −λ1²/4λ2 at h = λ1/2λ2) and
+    ζ > 0 beyond, so a route's energy shifts with how much slack it leaves, a feasible route
+    can be penalised and an infeasible one unpenalised (window_penalty measures it).
+    """
+
+    def __init__(self, instance, A=1.0, B=1.0, lam1=1.0, lam2=0.01):
+        self.lam = (lam1, lam2)
+        super().__init__(instance, A=A, B=B)
+
+    def window_penalty(self, route):
+        """Least Σ_i ζ(h_e,i) + ζ(h_l,i) over the waiting times the ω registers allow, for
+        route [0, c1, ..., cn]: its least energy is B·cost plus this.  Dynamic programming
+        over the total wait so far."""
+        c, e, l = self.inst.d, self.inst.e, self.inst.l
+        lam1, lam2 = self.lam
+
+        def zeta(h):
+            return -lam1 * h + lam2 * h ** 2
+
+        best = np.zeros(1)                    # least penalty so far, by total wait so far
+        travel = 0.0
+        for i, (u, v) in enumerate(zip(route, route[1:]), 1):
+            travel += c[u, v]
+            a = travel + np.arange(len(best))                 # A_i for each total wait
+            late = zeta(l[v] - a)
+            nxt = np.full(len(best) + sum(w for w, _ in self.ints["w", i]), np.inf)
+            for w in range(len(nxt) - len(best) + 1):         # ω_i = w
+                cand = best + zeta(a + w - e[v]) + late
+                nxt[w:w + len(best)] = np.minimum(nxt[w:w + len(best)], cand)
+            best = nxt
+        return float(best.min())
 
 
 def anneal(Q, offset=0.0, reads=100, sweeps=1000, seed=None):

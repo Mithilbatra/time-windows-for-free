@@ -1,0 +1,54 @@
+E2-UP: E2 (Salehi et al. 2022) with its two time-window slack registers per stop replaced by
+unbalanced penalization (Montañez-Barrera et al. 2024, Eq. 25): h >= 0 costs -l1*h + l2*h^2.
+Tuned as main() tunes E2: p1 in (1, 2, 5, 10, 20, 50) x (l1, l2) in [0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30] x [0.0001, 0.0003, 0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1] plus (0, 0) (no window term), in cost units.
+Other rows: results/sa.csv.  ZZ terms: nonzero couplings, mean over the evaluation instances at
+p1 = p2 = 1 (E2-UP: l1 = l2 = 1), as in results/resources.txt.
+
+n = 3 customers: tuned weights on 10 instances, evaluated on 20 fresh ones (100 reads x 10000 sweeps)
+  enc   qubits      ZZ  p1    window weight tune P(opt)  P(valid) P(on time)  P(opt)  solved
+  E0       9.0    30.0   1                -       0.472     0.932      0.525   0.474   20/20
+  E1       9.0    30.0   2           p2=0.1       0.742     1.000      0.962   0.734   20/20
+  E1+C     9.0    32.7   2           p2=0.1       0.792     1.000      1.000   0.762   20/20
+  E2      60.5   875.0   1           p2=500       0.454     0.880      0.690   0.516   20/20
+  E2-UP   29.0   348.7   1  l1=0.1 l2=0.003       0.442     0.926      0.621   0.481   20/20
+  E2-UP qubits 19..33: 3/20 instances fit exact QAOA simulation (<= 25 qubits)
+  paired P(opt) differences over the same instances, mean [95% t-interval]:
+    E2-UP - E2    -0.036 [-0.077, +0.006]
+    E1    - E2-UP +0.253 [+0.136, +0.370]
+    E1+C  - E2-UP +0.282 [+0.183, +0.381]
+  E2-UP penalty at the tuned weights, every route of the 20 evaluation instances, least over waiting times:
+    feasible routes with a nonzero penalty 100.0%, penalised (> 0) 0.0%; infeasible routes unpenalised (<= 0) 94.1% (17 instances with a late route)
+    lowest-energy route is the TSPTW optimum in 17/20 instances, on time in 18/20; routes below the optimum median 0, max 2
+
+n = 4 customers: tuned weights on 10 instances, evaluated on 20 fresh ones (100 reads x 10000 sweeps)
+  enc   qubits      ZZ  p1    window weight tune P(opt)  P(valid) P(on time)  P(opt)  solved
+  E0      16.0    84.0   1                -       0.267     0.973      0.268   0.206   16/20
+  E1      16.0    84.0   1          p2=0.25       0.583     0.878      0.641   0.532   19/20
+  E1+C    16.0    94.3   1             p2=1       0.633     0.817      0.775   0.611   20/20
+  E2     102.4  2931.9   2          p2=1000       0.189     0.964      0.379   0.187   20/20
+  E2-UP   60.0  1584.5   2   l1=0.3 l2=0.01       0.196     0.942      0.460   0.218   20/20
+  E2-UP qubits 58..62: 0/20 instances fit exact QAOA simulation (<= 25 qubits)
+  paired P(opt) differences over the same instances, mean [95% t-interval]:
+    E2-UP - E2    +0.030 [+0.000, +0.061]
+    E1    - E2-UP +0.315 [+0.192, +0.438]
+    E1+C  - E2-UP +0.394 [+0.278, +0.509]
+  E2-UP penalty at the tuned weights, every route of the 20 evaluation instances, least over waiting times:
+    feasible routes with a nonzero penalty 100.0%, penalised (> 0) 0.0%; infeasible routes unpenalised (<= 0) 90.0% (20 instances with a late route)
+    lowest-energy route is the TSPTW optimum in 12/20 instances, on time in 16/20; routes below the optimum median 0, max 11
+
+n = 5 customers: tuned weights on 10 instances, evaluated on 20 fresh ones (100 reads x 10000 sweeps)
+  enc   qubits      ZZ  p1    window weight tune P(opt)  P(valid) P(on time)  P(opt)  solved
+  E0      25.0   180.0   1                -       0.150     0.988      0.239   0.115   17/20
+  E1      25.0   180.0   1           p2=0.5       0.274     0.933      0.482   0.266   20/20
+  E1+C    25.0   192.2   1             p2=1       0.327     0.902      0.591   0.338   20/20
+  E2     165.7  8773.9   1           p2=inf       0.081     0.904      0.204   0.071   19/20
+  E2-UP  111.2  5660.4   1  l1=0.1 l2=0.003       0.087     0.732      0.254   0.094   20/20
+  E2-UP qubits 107..114: 0/20 instances fit exact QAOA simulation (<= 25 qubits)
+  paired P(opt) differences over the same instances, mean [95% t-interval]:
+    E2-UP - E2    +0.023 [+0.005, +0.041]
+    E1    - E2-UP +0.172 [+0.106, +0.238]
+    E1+C  - E2-UP +0.244 [+0.172, +0.316]
+  E2-UP penalty at the tuned weights, every route of the 20 evaluation instances, least over waiting times:
+    feasible routes with a nonzero penalty 100.0%, penalised (> 0) 0.0%; infeasible routes unpenalised (<= 0) 96.1% (20 instances with a late route)
+    lowest-energy route is the TSPTW optimum in 11/20 instances, on time in 12/20; routes below the optimum median 0, max 36
+
