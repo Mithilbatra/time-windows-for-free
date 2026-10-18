@@ -1,0 +1,528 @@
+% =============================================================================================
+% TODO: what the author still has to write
+%  1. Every bullet list below is an outline, not text. Replace each with your own prose and
+%     delete the bullets. Springer requires disclosing AI assistance (see the end of the paper).
+%  2. Abstract and keywords.
+%     ICCS 2027 (iccs-meeting.org/iccs2027, checked 2026-10-18): full paper 12-15 pages
+%     INCLUDING references and appendices; single-blind (keep names); EasyChair; submission
+%     5 Feb 2027 AoE, notification 5 Apr, camera-ready 23 Apr, conference 12-14 Jul, Krakow.
+%     The submission form has a mandatory "relevance to computational science" field and
+%     off-topic papers are desk-rejected: say why this is computational science.
+%  3. Introduction, Related work, Limitations, Conclusion: all prose.
+%  4. Method: the prose around the equations, and the proof of Lemma 1 in your own words
+%     (its steps are typeset below as a checklist).
+%  5. Results: the prose for each table and figure (four tables, three figures).
+%  6. Captions: the three figure captions are copied from views/paper.py CAPTIONS; reword them.
+%  7. Authors, affiliations, ORCIDs, acknowledgements, disclosure of interests, AI disclosure.
+%     Springer Nature's AI framework (checked 2026-10-18): polishing language is "green";
+%     AI-written code, analysis or writing support is "amber", allowed only with human
+%     verification and disclosure; undisclosed AI-generated reasoning is "red" (not allowed).
+%  8. refs.bib: check every entry once more before submission.
+%  9. Before arXiv: copy figures/*.pdf into paper/ (the arXiv bundle must be self-contained)
+%     and drop \graphicspath.
+%
+% Numbers: every table cell is copied from results/; each table names its source file.
+% Run `python3 paper/check_numbers.py` after editing: it fails if a decimal, percentage or
+% k/m count outside a comment is not in results/*.txt. Setup integers cite the code instead.
+%
+% Build (needs llncs.cls and splncs04.bst from Springer's LNCS template or CTAN `llncs`):
+%   pdflatex main && bibtex main && pdflatex main && pdflatex main
+% =============================================================================================
+\documentclass[runningheads]{llncs}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\graphicspath{{../figures/}{figures/}{./}}   % repo layout, Overleaf with a figures/ folder, or flat
+
+\newcommand{\Popt}{P(\mathrm{opt})}
+\newcommand{\Pvalid}{P(\mathrm{valid})}
+\newcommand{\Pontime}{P(\text{on time})}
+\newcommand{\LB}{\mathit{LB}}
+\newcommand{\iv}[1]{\bigl[\,#1\,\bigr]}   % Iverson bracket: 1 if #1 holds, else 0
+
+\begin{document}
+
+\title{Time windows for free: a sound, ancilla-free time-window encoding for QAOA on the TSP with time windows}
+\titlerunning{Time windows for free}
+\author{First Author\inst{1}\orcidID{0000-0000-0000-0000}}
+\authorrunning{F. Author}
+\institute{Institution, City, Country \\ \email{author@example.org}}
+
+\maketitle
+
+\begin{abstract}
+\begin{itemize}
+  \item Problem: TSPTW QUBOs enforce windows with slack qubits, which multiplies qubits and gates.
+  \item Idea: dynamic-programme bounds on each customer's earliest arrival at each position, used
+        as penalties on couplings the distance term already has (E1); E1+C adds a look-ahead.
+  \item Guarantee: no extra qubits, no extra two-qubit gates for E1, no feasible route penalised.
+  \item Evidence: exact QAOA simulation with the XY mixer (Table~\ref{tab:qaoa}) and simulated
+        annealing against the slack-qubit encoding of Salehi et al.\ (Table~\ref{tab:sa}).
+\end{itemize}
+\keywords{QAOA \and TSP with time windows \and QUBO \and XY mixer \and Penalty methods}
+\end{abstract}
+
+% ---------------------------------------------------------------------------------------------
+\section{Introduction}\label{sec:intro}
+\begin{itemize}
+  \item TSPTW: single vehicle, customers with windows $[e_j,l_j]$, waiting allowed; why windows matter.
+  \item Quantum route: QUBO $\to$ Ising $\to$ QAOA~\cite{farhi2014qaoa,hadfield2019qaoa}.
+  \item The obstacle: windows are inequalities; existing TSPTW QUBOs use slack and waiting
+        variables~\cite{papalitsas2019qubo,salehi2022unconstrained}, so qubits grow as $n^3$
+        (Table~\ref{tab:resources}: E2 vs E1).
+  \item Our idea in one sentence: bound the earliest arrival per (customer, position) classically,
+        like classical TSPTW pruning~\cite{dumas1995optimal}, and penalise only what the bound rules out.
+  \item Contributions (from views/paper.py CONTRIBUTIONS; rephrase):
+  \begin{enumerate}
+    \item a sound time-window penalty (E1): zero extra qubits and two-qubit gates, no feasible
+          route ever penalised; a look-ahead variant (E1+C) trades extra two-qubit terms for pruning;
+    \item a fair comparison with the slack-qubit encoding (E2) under simulated annealing, every
+          encoding's weights tuned the same way on separate instances;
+    \item exact QAOA simulation with the XY mixer on the states it reaches, to depth 12, with
+          paired statistics over fresh instances;
+    \item a window-tightness study on instances with planted windows.
+  \end{enumerate}
+  \item Roadmap of the paper.
+\end{itemize}
+
+% ---------------------------------------------------------------------------------------------
+\section{Related work}\label{sec:related}
+\begin{itemize}
+  \item \textbf{TSPTW QUBOs with slack.} First TSPTW QUBO, assumes every $e_v=0$~\cite{papalitsas2019qubo};
+        Salehi et al.\ report a flaw in it and give the corrected edge-based QUBO with binary
+        slack and waiting variables~\cite{salehi2022unconstrained}: our baseline E2.
+  \item \textbf{Prior art to credit.} Salehi et al.\ already bound the arrival time at position $i$
+        (their Eq.~18 and footnote~1), but the same for every city, without waiting, and only to
+        size slack registers. $\LB_{j,k}$ builds on that footnote: per city, with waiting, only
+        on-time prefixes, and used as the penalty itself (no slack). Say "builds on", not "new".
+  \item \textbf{Closest work: Rezk and Gora}~\cite{rezk2026gnn}, CVRPTW on a quantum annealer,
+        position encoding of~\cite{borowski2020new}; exact formulas only in their code~\cite{rezk2026code}.
+        Their bound is one value per customer, the same at every step:
+        \[ \hat e_j = \max\bigl(e_j,\; e_0 + d_{0j}\bigr). \]
+        Three tiers: depot check at step 0, consecutive pairs (hard and soft), and a $k\to k+2$
+        look-ahead. Points to make:
+        \begin{itemize}
+          \item hard tiers are sound only under the triangle inequality; the soft tier can penalise
+                a feasible route (example in related\_work.md \S4). Call it a heuristic suited to
+                annealing with repair, not "wrong";
+          \item the look-ahead adds couplings between positions two apart: new ZZ terms in QAOA;
+          \item annealing and many vehicles, vs our gate-model QAOA, single vehicle, XY mixer, proof.
+        \end{itemize}
+  \item \textbf{Other quantum TW routing.} CQM hybrid with classical repair, feasibility falls
+        with size~\cite{holliday2025advanced}; routing formulations compared by QUBO-hardness
+        metrics~\cite{harwood2021formulating}; windows handled classically before a route-based
+        variational step~\cite{leonidas2023qubit}.
+  \item \textbf{QAOA for routing without windows.} VRP with QAOA~\cite{azad2023solving,azfar2025quantum};
+        TSP mixer comparison~\cite{qian2023comparative}; warm start with XY mixers~\cite{docarmo2025warm};
+        edge-based subspace reduction~\cite{kallerimadhu2025edge}.
+  \item \textbf{Foundations.} Position encoding~\cite{lucas2014ising}; QAOA~\cite{farhi2014qaoa};
+        feasibility-preserving mixers~\cite{hadfield2019qaoa}; XY mixers~\cite{wang2020xy}.
+  \item \textbf{Alternatives to slack.} Unbalanced penalization~\cite{montanezbarrera2024unbalanced}
+        (a reviewer may ask for it as a baseline); constraint-encoding comparison for QAOA~\cite{liu2024comparison};
+        binary encodings trade qubits for depth~\cite{glos2022space}.
+  \item \textbf{Weights and instances.} Static penalty-weight rules~\cite{ayodele2022penalty};
+        classical TSPTW benchmarks no longer representative~\cite{soulignac2026beware}, one reason
+        to generate instances.
+  \item Optional: the gap matrix of related\_work.md \S3 as a check-mark table.
+\end{itemize}
+
+% ---------------------------------------------------------------------------------------------
+\section{Method}\label{sec:method}
+
+\subsection{Position encoding with a fixed depot}\label{sec:encoding}
+\begin{itemize}
+  \item Instance: depot $0$, customers $1,\dots,n$, travel time $d_{uv}$ equal to its cost
+        (service time folded in, as in~\cite{salehi2022unconstrained}); window $[e_j,l_j]$;
+        waiting allowed; the vehicle leaves at $e_0$ and must be back by $l_0$.
+  \item Fixing the depot at position $0$ leaves $n^2$ binary variables (Lucas's encoding~\cite{lucas2014ising}).
+\end{itemize}
+\begin{gather}
+  x_{j,k} = 1 \iff \text{customer } j \text{ is the } k\text{-th stop}, \qquad j,k \in \{1,\dots,n\},
+  \qquad H = H_A + H_B + H_T \label{eq:x}\\
+  H_A = A\sum_{j=1}^{n}\Bigl(1-\sum_{k=1}^{n}x_{j,k}\Bigr)^2 + A\sum_{k=1}^{n}\Bigl(1-\sum_{j=1}^{n}x_{j,k}\Bigr)^2 \label{eq:HA}\\
+  H_B = B\Bigl[\sum_{j=1}^{n} d_{0j}\,x_{j,1} + \sum_{k=1}^{n-1}\sum_{u\neq j} d_{uj}\,x_{u,k}\,x_{j,k+1}
+        + \sum_{j=1}^{n} d_{j0}\,x_{j,n}\Bigr] \label{eq:HB}
+\end{gather}
+\begin{itemize}
+  \item Every term is non-negative; a valid, unpenalised route has energy $B\cdot\mathrm{cost}$.
+  \item Legs touching the fixed depot are linear terms.
+  \item The encodings differ only in $H_T$: E0 none (control), E1, E1+C (ours), E2 (baseline, own QUBO).
+\end{itemize}
+
+\subsection{Earliest-arrival bounds and the E1 penalty}\label{sec:e1}
+% source: qubo.earliest_bounds, qubo.tw_terms; related_work.md §4
+\begin{align}
+  \LB_{j,1} &= \max\bigl(e_j,\; e_0 + d_{0j}\bigr) \label{eq:lb1}\\
+  \LB_{j,k} &= \max\Bigl(e_j,\; \min_{u\neq j,\; \LB_{u,k-1}\le l_u} \bigl(\LB_{u,k-1} + d_{uj}\bigr)\Bigr),
+      \qquad k = 2,\dots,n \quad (\min\emptyset = +\infty) \label{eq:lbk}\\
+  \lambda_{j,k} &= \iv{\LB_{j,k} > l_j}\ (k<n), \qquad
+  \lambda_{j,n} = \iv{\LB_{j,n} > l_j \;\lor\; \LB_{j,n} + d_{j0} > l_0} \label{eq:lin}\\
+  \mu_{k,u,j} &= \iv{\max\bigl(e_j,\; \LB_{u,k} + d_{uj}\bigr) > l_j}, \qquad u \neq j,\ k = 1,\dots,n-1 \label{eq:pair}\\
+  H_T^{\mathrm{E1}} &= P\Bigl[\sum_{j,k}\lambda_{j,k}\,x_{j,k}
+      + \sum_{k=1}^{n-1}\sum_{u\neq j}\mu_{k,u,j}\,x_{u,k}\,x_{j,k+1}\Bigr] \label{eq:HT1}
+\end{align}
+\begin{itemize}
+  \item $\LB_{j,k}$: earliest possible service start of $j$ as the $k$-th stop, over all walks
+        from the depot whose stops are all on time. Classical dynamic programme, $O(n^3)$.
+  \item Contrast with $\hat e_j$ (Section~\ref{sec:related}): $\LB_{j,k}$ grows with $k$, so it
+        sees cumulative travel time; linear terms at every $(j,k)$, not only step 0; pair
+        coefficients depend on $k$.
+  \item No new couplings: every pair in~\eqref{eq:pair} is a pair $H_B$ already couples
+        with weight $B\,d_{uj} > 0$; the linear terms are single-qubit $Z$ rotations.
+\end{itemize}
+
+\subsection{Soundness}\label{sec:soundness}
+% source: related_work.md §4 "Soundness lemma"; tests.test_feasible_routes_never_penalised
+\begin{lemma}[Soundness]\label{lem:sound}
+Let $\pi$ be a feasible route and $a_k$ the service start at its $k$-th stop,
+$a_1 = \max(e_{\pi(1)}, e_0 + d_{0\pi(1)})$ and $a_k = \max(e_{\pi(k)}, a_{k-1} + d_{\pi(k-1)\pi(k)})$.
+Then $a_k \ge \LB_{\pi(k),k}$ for $k = 1,\dots,n$, and every coefficient
+$\lambda$, $\mu$ (and $\nu$ of Section~\ref{sec:e1c}) on the variables of $\pi$ is zero.
+Hence $H(\pi) = B\cdot\mathrm{cost}(\pi)$.
+\end{lemma}
+\begin{proof}
+% TODO: write this proof in your own words; the steps are listed so none is lost.
+\begin{itemize}
+  \item Base: $a_1 = \LB_{\pi(1),1}$ by~\eqref{eq:lb1}.
+  \item Step ($k\ge2$, $u = \pi(k-1)$, $j = \pi(k)$): by induction and feasibility,
+        $\LB_{u,k-1} \le a_{k-1} \le l_u$, so $u$ is a candidate in the min of~\eqref{eq:lbk} and
+        \[ a_k = \max(e_j, a_{k-1} + d_{uj}) \ge \max(e_j, \LB_{u,k-1} + d_{uj}) \ge \LB_{j,k}. \]
+  \item Linear: $\LB_{j,k} \le a_k \le l_j$; at $k=n$ also $\LB_{j,n} + d_{j0} \le a_n + d_{j0} \le l_0$.
+  \item Pairwise ($u = \pi(k)$, $j = \pi(k+1)$): $\max(e_j, \LB_{u,k} + d_{uj}) \le \max(e_j, a_k + d_{uj}) = a_{k+1} \le l_j$.
+  \item Look-ahead ($u=\pi(k)$, $w=\pi(k+2)$): $v = \pi(k+1)$ is a witness in~\eqref{eq:la}, by the same monotonicity.
+  \item No assumption on $d$ (no triangle inequality needed).
+\end{itemize}
+\end{proof}
+\begin{itemize}
+  \item Consequence: with $A$ and $P$ large enough, the ground state is a TSPTW optimum exactly
+        when every infeasible route cheaper than the optimum gets at least one penalty
+        (state the tie case). How often that holds is the \emph{pruning power}.
+  \item Sufficient weights (qubo.py docstring): $A, P \ge S = B\sum_v \max_w d_{vw}$.
+\end{itemize}
+
+\subsection{Look-ahead variant E1+C}\label{sec:e1c}
+% source: qubo.lookahead
+\begin{align}
+  \nu_{k,u,w} &= \iv{\nexists\, v \notin \{u,w\}:\; a_v \le l_v \;\land\; \max(e_w,\, a_v + d_{vw}) \le l_w},
+      \qquad a_v = \max\bigl(e_v,\; \LB_{u,k} + d_{uv}\bigr) \label{eq:la}\\
+  H_T^{\mathrm{E1+C}} &= H_T^{\mathrm{E1}} + P\sum_{k=1}^{n-2}\sum_{u\neq w}\nu_{k,u,w}\,x_{u,k}\,x_{w,k+2} \label{eq:HT1C}
+\end{align}
+\begin{itemize}
+  \item Rezk and Gora's look-ahead tier with $\LB_{u,k}$ in place of $\hat e_u$: stays sound (Lemma~\ref{lem:sound}).
+  \item Cost: $(k, k+2)$ pairs are not coupled by $H_B$, so these are new ZZ terms (Table~\ref{tab:resources}).
+  \item Purpose: the ablation that measures what extra pruning buys against extra gates.
+\end{itemize}
+
+\subsection{Baseline E2: slack qubits}\label{sec:e2}
+% source: baselines.SalehiQUBO, related_work.md §3
+\begin{equation}
+  H^{\mathrm{E2}} = A\,H_R + P\,H_{TW} + B\,H_C, \qquad
+  N_{\mathrm{E2}} \le n^3 - 2n^2 + 3n + 3n\delta \label{eq:e2}
+\end{equation}
+\begin{itemize}
+  \item Salehi et al.'s corrected edge-based QUBO (their Eqs.~11, 22--24); exact windows through
+        binary-encoded waiting times and slacks (their Eq.~5); $\delta$ = bits per time value.
+  \item Our implementation sizes each register to the instance's bound, so its qubit counts
+        (Table~\ref{tab:resources}) sit below the bound in~\eqref{eq:e2}.
+  \item Too many qubits for QAOA simulation: solved with simulated annealing only.
+  \item Same weight parametrisation and tuning as our encodings (Section~\ref{sec:setup}).
+\end{itemize}
+
+\subsection{QAOA with the XY mixer}\label{sec:xy}
+% source: qaoa.FastQAOA.state, qaoa.FastQAOA._mix
+\begin{gather}
+  \lvert\psi(\boldsymbol\gamma,\boldsymbol\beta)\rangle
+    = U_M(\beta_p)\,e^{-i\gamma_p H_C}\cdots U_M(\beta_1)\,e^{-i\gamma_1 H_C}\lvert\psi_0\rangle,
+    \qquad H_C = H / \max\lvert\text{Ising coefficient}\rvert \label{eq:qaoa}\\
+  U_X(\beta) = \prod_{i} e^{-i\beta X_i}, \qquad \lvert\psi_0\rangle = \lvert+\rangle^{\otimes n^2} \label{eq:xmix}\\
+  U_{XY}(\beta) = \prod_{j=1}^{n}\prod_{k=1}^{n}
+     \exp\Bigl[-\tfrac{i\beta}{2}\bigl(X_{j,k}X_{j,k+1} + Y_{j,k}Y_{j,k+1}\bigr)\Bigr]
+     \ (X_{j,n+1} \equiv X_{j,1}), \qquad
+  \lvert\psi_0\rangle = \bigotimes_{j=1}^{n}\lvert W_n\rangle_j \label{eq:xymix}
+\end{gather}
+\begin{itemize}
+  \item XY ring inside each customer's row~\cite{hadfield2019qaoa,wang2020xy}, applied edge by edge;
+        $\lvert W_n\rangle$ = equal superposition of the $n$ one-hot states of a row.
+  \item Each customer stays at exactly one position, so the first sum of $H_A$ is zero and is left
+        out of $H_C$; only the position (column) constraint is still a penalty.
+  \item Reachable space: $n^n$ states instead of $2^{n^2}$; we simulate exactly on it.
+  \item Circuit cost: every nonzero off-diagonal QUBO entry is one ZZ rotation (two CNOTs);
+        counts per layer in Table~\ref{tab:resources}.
+  \item X mixer~\eqref{eq:xmix} as the unconstrained comparison.
+\end{itemize}
+
+% ---------------------------------------------------------------------------------------------
+\section{Experimental setup}\label{sec:setup}
+\begin{itemize}
+  % source: qubo.make_instance; related_work.md §5.3
+  \item \textbf{Instances} (Salehi et al.'s protocol~\cite{salehi2022unconstrained}): integer travel
+        costs uniform in $\{1,\dots,10\}$, symmetric, closed under shortest paths (Floyd--Warshall);
+        $e_j$ uniform in $\{1,\dots,20\}$; $l_j$ uniform in $\{e_j,\dots,40\}$; depot $e_0=0$, no
+        return deadline; resampled until a feasible route exists.
+  % source: qaoa_grid_summary.txt headers
+  \item We do not force a late TSP optimum; report how many instances have one
+        (5, 10 and 18 of 50 at $n=3,4,5$ in the QAOA set).
+  % source: qubo.make_instance(width=...), experiments.WIDTHS
+  \item \textbf{Planted windows} for the tightness study: a random order driven without waiting,
+        window $[a_j - u, a_j + u']$ with $u,u'$ uniform in $\{0,\dots,w\}$, half-widths
+        $w \in \{0, 6, 12, 24, 48\}$; one seed gives nested windows across widths.
+  \item \textbf{Sizes} $n = 3,4,5$: 9, 16, 25 qubits for E0, E1, E1+C. Ground truth by enumerating all $n!$ orders.
+  % source: experiments.builder; grids: experiments.P1/P2/SWEEP_P1/SWEEP_P2, grid.P1/P2; Salehi et al. §4.3
+  \item \textbf{Weights} (Salehi et al.'s parametrisation): $B = 1$, $A = C\,p_1$, $P = C/p_2$ with $C$ the
+        largest travel cost; $p_2 = \infty$ switches the window term off; the same $(p_1,p_2)$ grid
+        for every encoding. Grids:
+        SA $p_1 \in \{1,2,5,10,20,50\}$, $p_2 \in \{0.1,0.25,0.5,1,2,5,10,20,50,100,200,500,1000,\infty\}$;
+        tightness study $p_1 \in \{1,2,5\}$, $p_2 \in \{0.25,1,5,20,100,1000,\infty\}$;
+        QAOA $p_1 \in \{1,2,5,10,20\}$, $p_2 \in \{0.1,0.25,1,4\}$.
+        Say why grid tuning replaced Ayodele's static rules~\cite{ayodele2022penalty}.
+  % source: experiments.py docstring, sa_summary.txt headers
+  \item \textbf{Simulated annealing} (single-bit-flip, every encoding): tune on 10 instances per size
+        (100 reads $\times$ 2000 sweeps), evaluate the chosen pair on 20 fresh instances
+        (100 reads $\times$ 10000 sweeps, Salehi et al.'s budget). Checks: E2 oracle (best pair per
+        instance, knowing the optimum) and E1/E2 at 2000 and 50000 sweeps.
+        Tightness: 5 tuning + 20 fresh instances per width, weights re-tuned per width.
+  % source: grid.py docstring, qaoa_grid_summary.txt headers
+  \item \textbf{QAOA}: exact simulation on the states the mixer reaches; XY at $n=3,4,5$, X at $n=3,4$.
+        Tune every pair on 10 instances (4 for X at $n=4$) at depths 1--5; evaluate on 50 fresh
+        instances (20 for X at $n=4$) at $p \in \{1,2,3,5,8,12\}$. Optimiser: INTERP ladder
+        \cite{zhou2020qaoa}, 5 random starts at $p=1$ and 3 more at every later depth, L-BFGS with exact gradients.
+  \item \textbf{Metrics}, feasibility first~\cite{holliday2025advanced,azfar2025quantum}:
+        $\Popt$ = probability (QAOA) or fraction of reads (SA) ending in an optimal on-time route;
+        $\Pvalid$; $\Pontime$; solved = instances with $\Popt>0$. Encodings compared per instance
+        (paired) with 95\% t-intervals, split by whether the TSP optimum is late.
+  % source: experiments.py and grid.py docstrings
+  \item Compute budget and reproducibility: run times from the docstrings; code and data release (add URL).
+\end{itemize}
+
+% ---------------------------------------------------------------------------------------------
+\section{Results}\label{sec:results}
+
+\subsection{Simulated annealing}
+% source: results/sa_summary.txt (eval columns; the tune P(opt) column is left out)
+\begin{table}[t]
+\caption{Simulated annealing on Salehi-protocol instances: weights $(p_1,p_2)$ tuned on 10
+instances, evaluated on 20 fresh ones (100 reads $\times$ 10000 sweeps). Solved: instances with
+$\Popt > 0$. E0 has no window term, so its $p_2$ is unused.}\label{tab:sa}
+\centering\small\setlength{\tabcolsep}{4pt}
+\begin{tabular}{rlrrrrrrr}
+\toprule
+$n$ & Enc. & Qubits & $p_1$ & $p_2$ & $\Pvalid$ & $\Pontime$ & $\Popt$ & Solved\\
+\midrule
+3 & E0   &   9 & 1 & --       & 0.932 & 0.525 & 0.474 & 20/20\\
+  & E1   &   9 & 2 & 0.1      & 1.000 & 0.962 & 0.734 & 20/20\\
+  & E1+C &   9 & 2 & 0.1      & 1.000 & 1.000 & 0.762 & 20/20\\
+  & E2   &  60 & 1 & 500      & 0.880 & 0.690 & 0.516 & 20/20\\
+\midrule
+4 & E0   &  16 & 1 & --       & 0.973 & 0.268 & 0.206 & 16/20\\
+  & E1   &  16 & 1 & 0.25     & 0.878 & 0.641 & 0.532 & 19/20\\
+  & E1+C &  16 & 1 & 1        & 0.817 & 0.775 & 0.611 & 20/20\\
+  & E2   & 102 & 2 & 1000     & 0.964 & 0.379 & 0.187 & 20/20\\
+\midrule
+5 & E0   &  25 & 1 & --       & 0.988 & 0.239 & 0.115 & 17/20\\
+  & E1   &  25 & 1 & 0.5      & 0.933 & 0.482 & 0.266 & 20/20\\
+  & E1+C &  25 & 1 & 1        & 0.902 & 0.591 & 0.338 & 20/20\\
+  & E2   & 166 & 1 & $\infty$ & 0.904 & 0.204 & 0.071 & 19/20\\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{itemize}
+  % source: results/sa_summary.txt
+  \item E1+C has the highest $\Popt$ at every $n$, E1 second; E2 beats E0 only at $n=3$, with far more qubits.
+  \item E2's tuned window weight at $n=5$ is $p_2=\infty$: its window term is switched off. Discuss.
+  \item E1 and E1+C lower $\Pvalid$ than E0 at $n=4,5$ (0.878 and 0.817 vs 0.973 at $n=4$). Discuss.
+  \item E2 is not starved: oracle mean $\Popt$ 0.070 at $n=5$; at 2000 / 10000 / 50000 sweeps E2
+        reaches 0.034 / 0.046 / 0.062 vs E1 0.192 / 0.228 / 0.256 on the same 5 instances.
+  % source: results/sa_tightness_summary.txt
+  \item Tightness (Fig.~\ref{fig:tightness}): at width 0 E1 and E1+C reach $\Popt = 1.000$ at every
+        $n$ (E2: 0.361, 0.178, 0.050); the gap narrows as windows loosen ($n=5$, width 48:
+        E1+C 0.450, E1 0.401, E0 0.309, E2 0.153). Explain why width 0 is easy for a bound-based penalty.
+\end{itemize}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{sa_tightness}
+\caption{Simulated annealing $\Popt$ against the half-width of planted time windows (ordinal
+axis: 0, 6, 12, 24, 48), weights re-tuned at every width. At width 0 only the planted route is
+feasible.}\label{fig:tightness}
+\end{figure}
+
+\subsection{QAOA}
+% source: results/qaoa_grid_summary.txt, "P(opt) minus E0's, paired per instance" rows, p = 1, 5, 12
+\begin{table}[t]
+\caption{QAOA: $\Popt$ minus E0's, paired per instance (mean $\pm$ 95\% CI), at depths
+$p = 1, 5, 12$. 50 fresh instances per row (20 for the X mixer at $n=4$).}\label{tab:qaoa}
+\centering\small\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llllll}
+\toprule
+Mixer & $n$ & Enc. & $p=1$ & $p=5$ & $p=12$\\
+\midrule
+XY & 3 & E1   & $+0.049\pm0.032$ & $+0.100\pm0.066$ & $+0.166\pm0.094$\\
+   &   & E1+C & $+0.064\pm0.030$ & $+0.177\pm0.080$ & $+0.201\pm0.104$\\
+   & 4 & E1   & $-0.002\pm0.005$ & $+0.029\pm0.023$ & $+0.072\pm0.073$\\
+   &   & E1+C & $+0.003\pm0.003$ & $+0.087\pm0.038$ & $+0.217\pm0.071$\\
+   & 5 & E1   & $+0.000\pm0.000$ & $+0.019\pm0.007$ & $+0.075\pm0.034$\\
+   &   & E1+C & $+0.001\pm0.000$ & $+0.028\pm0.012$ & $+0.094\pm0.043$\\
+\midrule
+X  & 3 & E1   & $-0.008\pm0.002$ & $+0.026\pm0.010$ & $+0.197\pm0.052$\\
+   &   & E1+C & $-0.011\pm0.004$ & $+0.057\pm0.020$ & $+0.231\pm0.054$\\
+   & 4 & E1   & $-0.000\pm0.000$ & $+0.003\pm0.008$ & $+0.045\pm0.049$\\
+   &   & E1+C & $-0.000\pm0.000$ & $+0.014\pm0.013$ & $+0.124\pm0.063$\\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{itemize}
+  % source: results/qaoa_grid_summary.txt
+  \item XY: E1+C's gain is positive at every depth and size, grows with depth (through $p=12$ at
+        $n=4,5$; it peaks at $p=8$ at $n=3$), and its interval excludes zero at $p=12$ for every $n$.
+        E1 at $n=4$ does not ($+0.072\pm0.073$).
+  \item X mixer: small losses at $p\le3$, gains from $p=5$ on. Why (penalty landscape at shallow depth)?
+  \item XY: $\Pontime$ gains exceed $\Popt$ gains from $p=2$ on (summary file, or a supplementary table).
+  \item Where the gain comes from: at $n=4$ (XY, $p=12$) late instances carry 91\% of E1's gain,
+        while E1+C also gains on on-time instances ($+0.180\pm0.075$).
+  \item Ground state is the optimum (XY, $n=5$): E0 32\%, E1 64\%, E1+C 85\%. Tie this to Lemma~\ref{lem:sound}.
+  \item Compare with the uniform baseline column of the summary file.
+\end{itemize}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{qaoa_depth}
+\caption{QAOA $\Popt$ against depth: mean over 50 fresh instances (20 for the X mixer at
+$n = 4$) with 95\% t-interval bands. Each panel has its own y-scale.}\label{fig:depth}
+\end{figure}
+
+\subsection{Circuit cost}
+% source: results/resources.txt
+\begin{table}[t]
+\caption{Qubits and two-qubit (ZZ) terms per QAOA layer, mean over the 20 evaluation instances.
+Every nonzero off-diagonal QUBO entry is one ZZ rotation. E2 is not run with QAOA.}\label{tab:resources}
+\centering\small
+\begin{tabular}{rlrrr}
+\toprule
+$n$ & Enc. & Qubits & ZZ terms, X mixer & ZZ terms, XY mixer\\
+\midrule
+3 & E0   &   9 &   30.0 & 21.0\\
+  & E1   &   9 &   30.0 & 21.0\\
+  & E1+C &   9 &   32.7 & 23.7\\
+  & E2   &  60 &  875.0 & --\\
+\midrule
+4 & E0   &  16 &   84.0 & 60.0\\
+  & E1   &  16 &   84.0 & 60.0\\
+  & E1+C &  16 &   94.3 & 70.3\\
+  & E2   & 102 & 2931.9 & --\\
+\midrule
+5 & E0   &  25 &  180.0 & 130.0\\
+  & E1   &  25 &  180.0 & 130.0\\
+  & E1+C &  25 &  192.2 & 142.2\\
+  & E2   & 166 & 8773.9 & --\\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{itemize}
+  \item E1 costs exactly what E0 costs, in qubits and ZZ terms, with either mixer.
+  \item E1+C's overhead over E1: state it as a percentage computed from Table~\ref{tab:resources}.
+  \item E2 against E1: qubits and ZZ terms per layer (Table~\ref{tab:resources}); depth implications.
+  \item The XY mixer removes the row penalty, so fewer ZZ terms than with the X mixer.
+\end{itemize}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{resources}
+% second sentence: views/paper.py figures tab; numbers are E1's XY column in results/resources.txt
+\caption{Qubits and two-qubit terms per QAOA layer with the X mixer, mean over 20 instances.
+E1 needs exactly E0's terms. With the XY mixer our encodings need fewer (21.0, 60.0, 130.0 at
+$n = 3, 4, 5$).}\label{fig:resources}
+\end{figure}
+
+\subsection{Pruning power}
+% source: results/pruning_check.txt (pruned, false+, GS=opt and new ZZ columns; n = 4 and 6 left out)
+\begin{table}[t]
+\caption{Classical pruning, 200 Salehi-protocol instances per size, window weight $P = 1000$,
+all $n!$ routes enumerated. Pruned: mean share of late routes that get a penalty (instances
+with no late route left out). False+: share of on-time routes penalised. GS = opt: instances
+whose ground state is the TSPTW optimum. New ZZ: two-qubit terms no other term has, mean per
+instance (in brackets: relative to the window-free count). RG-AB is the sound part of Rezk and
+Gora's method, RG-full all of it.}\label{tab:pruning}
+\centering\small\setlength{\tabcolsep}{5pt}
+\begin{tabular}{rlrrrr}
+\toprule
+$n$ & Method & Pruned (\%) & False+ (\%) & GS = opt (\%) & New ZZ\\
+\midrule
+3 & E0      &   0.0 &   0.0 &  30.5 & 0.0\\
+  & RG-AB   &  62.2 &   0.0 &  72.5 & 0.0\\
+  & RG-full & 100.0 &  81.3 &  64.5 & 2.6 (+9\%)\\
+  & E1      &  81.9 &   0.0 &  83.5 & 0.0\\
+  & E1+C    & 100.0 &   0.0 & 100.0 & 2.6 (+9\%)\\
+\midrule
+5 & E0      &   0.0 &   0.0 &   3.0 & 0.0\\
+  & RG-AB   &  59.1 &   0.0 &  24.0 & 0.0\\
+  & RG-full & 100.0 &  98.1 &  17.5 & 13.6 (+8\%)\\
+  & E1      &  74.3 &   0.0 &  46.5 & 0.0\\
+  & E1+C    &  85.9 &   0.0 &  67.0 & 16.1 (+9\%)\\
+\midrule
+7 & E0      &   0.0 &   0.0 &   0.5 & 0.0\\
+  & RG-AB   &  69.5 &   0.0 &  11.0 & 0.0\\
+  & RG-full & 100.0 & 100.0 &   6.0 & 40.6 (+7\%)\\
+  & E1      &  80.6 &   0.0 &  19.0 & 0.0\\
+  & E1+C    &  87.8 &   0.0 &  35.0 & 50.2 (+9\%)\\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{itemize}
+  % source: results/pruning_check.txt
+  \item Consider moving this subsection first in Results: it is the mechanism behind the SA and QAOA gains.
+  \item Lemma~\ref{lem:sound} in practice: E0, RG-AB, E1 and E1+C never penalise an on-time route
+        (the script asserts it on every instance). RG-full's soft tier penalises most on-time routes
+        (81.3\% at $n=3$, 100.0\% at $n=7$), which is why its ground state is so often wrong.
+  \item E1 against Rezk and Gora's sound part: more late routes caught and a better ground state at
+        every size, with zero new couplings.
+  \item E1+C buys the rest: ground state optimal in 100.0\% of instances at $n=3$ and 67.0\% at $n=5$,
+        for 9\% more ZZ terms.
+  \item The share of instances whose ground state is the optimum falls with $n$ for every method (E1: 19.0\% at $n=7$). Say what this means for larger instances.
+  % source: results/pruning_large.txt (100 other instances, seeds 90000..90099; late routes only)
+  \item Beyond QAOA sizes the pruning holds: at $n=9$ E1 catches $78.3\pm5.6$\% of late routes
+        and E1+C $85.6\pm4.9$\% (mean with 95\% t-interval).
+  \item Rezk and Gora's formulas are re-implemented from their code~\cite{rezk2026code}, not run through their pipeline.
+\end{itemize}
+
+% ---------------------------------------------------------------------------------------------
+\section{Limitations}\label{sec:limits}
+\begin{itemize}
+  \item Small sizes ($n\le5$, at most 25 qubits); exact noiseless simulation, no hardware, no shot noise.
+  \item E1 is sound but not complete: unpenalised infeasible routes compete on cost alone
+        (ground state is the optimum in 64\% of XY instances at $n=5$; E1+C 85\%).
+  \item E2 is only run with simulated annealing, and its tuned window term is off at $n=5$.
+  \item X-mixer weights sat on the tuning grid's edge; re-tuning beyond it changes little
+        (results/qaoa\_grid\_edge.txt).
+  \item One vehicle, no separate service times, integer metric costs, generated instances only.
+  \item Rezk and Gora's method compared only through its re-implemented penalty formulas, not their
+        full annealing pipeline.
+  \item Optimiser reruns agree to about $10^{-5}$ in $\Popt$, not bit for bit (grid.py docstring).
+  \item Planted width 0 is a best case for a bound-based penalty.
+\end{itemize}
+
+% ---------------------------------------------------------------------------------------------
+\section{Conclusion}\label{sec:conclusion}
+\begin{itemize}
+  \item Restate: two sound operating points, E1 (no gate overhead) and E1+C (some extra ZZ terms).
+  \item Main evidence in one line each: annealing (Table~\ref{tab:sa}), QAOA (Table~\ref{tab:qaoa}),
+        cost (Table~\ref{tab:resources}).
+  \item Future work: larger $n$ with approximate simulators, hardware runs, permutation-preserving
+        mixers~\cite{hadfield2019qaoa}, unbalanced penalization as a further baseline~\cite{montanezbarrera2024unbalanced},
+        multiple vehicles (CVRPTW, as in~\cite{rezk2026gnn}).
+\end{itemize}
+
+% ---------------------------------------------------------------------------------------------
+% Newer llncs versions offer a credits environment for these; plain headings work in every version.
+\subsubsection*{Acknowledgements.} TODO.
+
+\subsubsection*{Disclosure of Interests.} TODO.
+
+\subsubsection*{Use of AI tools.} TODO: describe what AI assistance was used for (code, review,
+this outline), as Springer's policy requires.
+
+\bibliographystyle{splncs04}
+\bibliography{refs}
+
+\end{document}

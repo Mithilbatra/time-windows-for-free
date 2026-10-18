@@ -78,7 +78,7 @@ def run(n, n_inst=200, seed=0):
             E_opt = E[feas & np.isclose(cost, opt)].min()
             s = stats[m]
             s["rank"].append(int((E < E_opt - 1e-9).sum()))  # routes a sampler would prefer over the optimum
-            s["prune"].append((pen[~feas] > 0).mean() if (~feas).any() else 1.0)
+            s["prune"].append((pen[~feas] > 0).mean() if (~feas).any() else np.nan)  # no late route: nothing to prune
             s["false"].append((pen[feas] > 0).mean())
             s["gs"].append(ok)
             if binding:
@@ -106,7 +106,9 @@ if __name__ == "__main__":
     for n in (3, 4, 5, 6, 7):
         st = run(n)
         nb = len(st["E0"]["gs_bind"])
-        print(f"n = {n} customers ({n*n} qubits, depot fixed) | TW-binding instances: {nb}/200")
+        none = int(np.isnan(st["E0"]["prune"]).sum())
+        print(f"n = {n} customers ({n*n} qubits, depot fixed) | TW-binding instances: {nb}/200"
+              f" | no late route (left out of pruned): {none}/200")
         print(f"  {'method':8} {'pruned':>7} {'false+':>7} {'GS=opt':>7} {'GS=opt|bind':>12} "
               f"{'rank med/p90':>13} {'new ZZ':>7}")
         for m in METHODS:
@@ -114,7 +116,7 @@ if __name__ == "__main__":
             gsb = np.mean(s["gs_bind"]) if s["gs_bind"] else float("nan")
             nz = np.mean(s["newzz"])
             r = np.percentile(s["rank"], [50, 90])
-            print(f"  {m:8} {np.mean(s['prune']):7.1%} {np.mean(s['false']):7.1%} "
+            print(f"  {m:8} {np.nanmean(s['prune']):7.1%} {np.mean(s['false']):7.1%} "
                   f"{np.mean(s['gs']):7.1%} {gsb:12.1%} {r[0]:6.0f}/{r[1]:<6.0f} "
                   f"{nz:5.1f} (+{nz / n_base(n):.0%})")
         print()
