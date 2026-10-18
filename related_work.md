@@ -176,7 +176,7 @@ Present LB(j,k) as building on their footnote, not as entirely new.
 7. **Venue:** ICCS fits (#7). Cite #1 precisely and generously.
 8. **First classical result** (`pruning_check.py`; 200 instances per size, Salehi protocol, P = 1000):
    - E1 never penalises a feasible route.
-   - It flags 71–81% of infeasible routes, with zero new couplings.
+   - It flags 70–81% of infeasible routes at n = 4–7 (82% at n = 3), with zero new couplings. Instances with no late route are left out (`results/pruning_check.txt`).
    - Its ground state is the TSPTW optimum in 83.5%, 59.5% and 46.5% of instances at n = 3, 4, 5. Rezk & Gora's full method reaches 64.5%, 33% and 17.5%, and adds about 8% more ZZ terms.
    - E1+C (sound look-ahead, about 9% more ZZ terms) reaches 100%, 85% and 67%.
    - Under E1, the optimum sits among the 2 lowest-energy routes in 90% of n = 5 instances.
