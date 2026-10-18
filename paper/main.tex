@@ -59,7 +59,8 @@
         as penalties on couplings the distance term already has (E1); E1+C adds a look-ahead.
   \item Guarantee: no extra qubits, no extra two-qubit gates for E1, no feasible route penalised.
   \item Evidence: exact QAOA simulation with the XY mixer (Table~\ref{tab:qaoa}) and simulated
-        annealing against the slack-qubit encoding of Salehi et al.\ (Table~\ref{tab:sa}).
+        annealing against the slack-qubit encoding of Salehi et al.\ and a slack-free
+        unbalanced-penalization variant of it (Table~\ref{tab:sa}).
 \end{itemize}
 \keywords{QAOA \and TSP with time windows \and QUBO \and XY mixer \and Penalty methods}
 \end{abstract}
@@ -78,8 +79,9 @@
   \begin{enumerate}
     \item a sound time-window penalty (E1): zero extra qubits and two-qubit gates, no feasible
           route ever penalised; a look-ahead variant (E1+C) trades extra two-qubit terms for pruning;
-    \item a fair comparison with the slack-qubit encoding (E2) under simulated annealing, every
-          encoding's weights tuned the same way on separate instances;
+    \item a fair comparison with the slack-qubit encoding (E2) and its slack-free
+          unbalanced-penalization variant (E2-UP) under simulated annealing, every encoding's
+          weights tuned the same way on separate instances;
     \item exact QAOA simulation with the XY mixer on the states it reaches, to depth 12, with
           paired statistics over fresh instances;
     \item a window-tightness study on instances with planted windows.
@@ -120,7 +122,7 @@
   \item \textbf{Foundations.} Position encoding~\cite{lucas2014ising}; QAOA~\cite{farhi2014qaoa};
         feasibility-preserving mixers~\cite{hadfield2019qaoa}; XY mixers~\cite{wang2020xy}.
   \item \textbf{Alternatives to slack.} Unbalanced penalization~\cite{montanezbarrera2024unbalanced}
-        (a reviewer may ask for it as a baseline); constraint-encoding comparison for QAOA~\cite{liu2024comparison};
+        (our baseline E2-UP, Section~\ref{sec:e2up}); constraint-encoding comparison for QAOA~\cite{liu2024comparison};
         binary encodings trade qubits for depth~\cite{glos2022space}.
   \item \textbf{Weights and instances.} Static penalty-weight rules~\cite{ayodele2022penalty};
         classical TSPTW benchmarks no longer representative~\cite{soulignac2026beware}, one reason
@@ -148,7 +150,7 @@
 \begin{itemize}
   \item Every term is non-negative; a valid, unpenalised route has energy $B\cdot\mathrm{cost}$.
   \item Legs touching the fixed depot are linear terms.
-  \item The encodings differ only in $H_T$: E0 none (control), E1, E1+C (ours), E2 (baseline, own QUBO).
+  \item The encodings differ only in $H_T$: E0 none (control), E1, E1+C (ours), E2 and E2-UP (baselines, own QUBO).
 \end{itemize}
 
 \subsection{Earliest-arrival bounds and the E1 penalty}\label{sec:e1}
@@ -230,6 +232,24 @@ Hence $H(\pi) = B\cdot\mathrm{cost}(\pi)$.
   \item Same weight parametrisation and tuning as our encodings (Section~\ref{sec:setup}).
 \end{itemize}
 
+\subsection{Baseline E2-UP: unbalanced penalization}\label{sec:e2up}
+% source: baselines.UnbalancedQUBO; Montanez-Barrera et al. Eqs. 23-25
+\begin{gather}
+  \zeta(h) = -\lambda_1 h + \lambda_2 h^2 \quad \text{for an inequality } h(x) \ge 0 \label{eq:up}\\
+  h_{e,i} = \tau_i + \omega_i - e_{v} \ge 0, \qquad h_{l,i} = l_{v} - \tau_i \ge 0 \label{eq:uph}\\
+  H^{\mathrm{E2\text{-}UP}} = A\,H_R + \sum_{i}\bigl[\zeta(h_{e,i}) + \zeta(h_{l,i})\bigr] + B\,H_C \label{eq:e2up}
+\end{gather}
+\begin{itemize}
+  \item Slack-free alternative~\cite{montanezbarrera2024unbalanced}: E2 with its two slack registers
+        per stop dropped; each window inequality penalised by~\eqref{eq:up} (a quadratic fit to $e^{-h}$).
+  \item $\tau_i$: arrival at the $i$-th stop (Salehi et al.'s Eq.~13), $v$ the customer served there;
+        the waiting bits $\omega_i$ are kept, so E2-UP differs from E2 only in how the two inequalities are penalised.
+  \item One $(\lambda_1,\lambda_2)$ pair per problem, in cost units, as in the original paper.
+  \item Not exact: $\zeta < 0$ for $0 < h < \lambda_1/\lambda_2$, so feasible routes are rewarded by how
+        much slack they leave, and an infeasible route can end up unpenalised (measured in Section~\ref{sec:results}).
+  \item About half of E2's qubits (Table~\ref{tab:resources}), still too many for QAOA simulation: SA only.
+\end{itemize}
+
 \subsection{QAOA with the XY mixer}\label{sec:xy}
 % source: qaoa.FastQAOA.state, qaoa.FastQAOA._mix
 \begin{gather}
@@ -269,13 +289,16 @@ Hence $H(\pi) = B\cdot\mathrm{cost}(\pi)$.
         window $[a_j - u, a_j + u']$ with $u,u'$ uniform in $\{0,\dots,w\}$, half-widths
         $w \in \{0, 6, 12, 24, 48\}$; one seed gives nested windows across widths.
   \item \textbf{Sizes} $n = 3,4,5$: 9, 16, 25 qubits for E0, E1, E1+C. Ground truth by enumerating all $n!$ orders.
-  % source: experiments.builder; grids: experiments.P1/P2/SWEEP_P1/SWEEP_P2, grid.P1/P2; Salehi et al. §4.3
+  % source: experiments.builder; grids: experiments.P1/P2/SWEEP_P1/SWEEP_P2, grid.P1/P2, E2-UP grid in the header of results/sa_up_summary.txt; Salehi et al. §4.3
   \item \textbf{Weights} (Salehi et al.'s parametrisation): $B = 1$, $A = C\,p_1$, $P = C/p_2$ with $C$ the
         largest travel cost; $p_2 = \infty$ switches the window term off; the same $(p_1,p_2)$ grid
         for every encoding. Grids:
         SA $p_1 \in \{1,2,5,10,20,50\}$, $p_2 \in \{0.1,0.25,0.5,1,2,5,10,20,50,100,200,500,1000,\infty\}$;
         tightness study $p_1 \in \{1,2,5\}$, $p_2 \in \{0.25,1,5,20,100,1000,\infty\}$;
         QAOA $p_1 \in \{1,2,5,10,20\}$, $p_2 \in \{0.1,0.25,1,4\}$.
+        E2-UP: the same $p_1$ grid with $(\lambda_1,\lambda_2) \in \{0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30\}
+        \times \{0.0001, 0.0003, 0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1\}$ plus $(0,0)$ (no window term),
+        tuned and evaluated exactly as E2 (experiments.py up).
         Say why grid tuning replaced Ayodele's static rules~\cite{ayodele2022penalty}.
   % source: experiments.py docstring, sa_summary.txt headers
   \item \textbf{Simulated annealing} (single-bit-flip, every encoding): tune on 10 instances per size
@@ -300,36 +323,49 @@ Hence $H(\pi) = B\cdot\mathrm{cost}(\pi)$.
 \section{Results}\label{sec:results}
 
 \subsection{Simulated annealing}
-% source: results/sa_summary.txt (eval columns; the tune P(opt) column is left out)
+% source: results/sa_up_summary.txt (eval columns; the tune P(opt) and ZZ columns are left out).
+% Its E0-E2 rows are the rows of results/sa_summary.txt, with qubit means to one decimal.
 \begin{table}[t]
-\caption{Simulated annealing on Salehi-protocol instances: weights $(p_1,p_2)$ tuned on 10
-instances, evaluated on 20 fresh ones (100 reads $\times$ 10000 sweeps). Solved: instances with
-$\Popt > 0$. E0 has no window term, so its $p_2$ is unused.}\label{tab:sa}
-\centering\small\setlength{\tabcolsep}{4pt}
+\caption{Simulated annealing on Salehi-protocol instances: weights tuned on 10 instances,
+evaluated on 20 fresh ones (100 reads $\times$ 10000 sweeps). Qubits: mean over the evaluation
+instances. Window weight: $p_2$, or $(\lambda_1,\lambda_2)$ for E2-UP; E0 has no window term.
+Solved: instances with $\Popt > 0$.}\label{tab:sa}
+\centering\small\setlength{\tabcolsep}{3pt}
 \begin{tabular}{rlrrrrrrr}
 \toprule
-$n$ & Enc. & Qubits & $p_1$ & $p_2$ & $\Pvalid$ & $\Pontime$ & $\Popt$ & Solved\\
+$n$ & Enc. & Qubits & $p_1$ & Window weight & $\Pvalid$ & $\Pontime$ & $\Popt$ & Solved\\
 \midrule
-3 & E0   &   9 & 1 & --       & 0.932 & 0.525 & 0.474 & 20/20\\
-  & E1   &   9 & 2 & 0.1      & 1.000 & 0.962 & 0.734 & 20/20\\
-  & E1+C &   9 & 2 & 0.1      & 1.000 & 1.000 & 0.762 & 20/20\\
-  & E2   &  60 & 1 & 500      & 0.880 & 0.690 & 0.516 & 20/20\\
+3 & E0    &   9.0 & 1 & --             & 0.932 & 0.525 & 0.474 & 20/20\\
+  & E1    &   9.0 & 2 & 0.1            & 1.000 & 0.962 & 0.734 & 20/20\\
+  & E1+C  &   9.0 & 2 & 0.1            & 1.000 & 1.000 & 0.762 & 20/20\\
+  & E2    &  60.5 & 1 & 500            & 0.880 & 0.690 & 0.516 & 20/20\\
+  & E2-UP &  29.0 & 1 & (0.1, 0.003)   & 0.926 & 0.621 & 0.481 & 20/20\\
 \midrule
-4 & E0   &  16 & 1 & --       & 0.973 & 0.268 & 0.206 & 16/20\\
-  & E1   &  16 & 1 & 0.25     & 0.878 & 0.641 & 0.532 & 19/20\\
-  & E1+C &  16 & 1 & 1        & 0.817 & 0.775 & 0.611 & 20/20\\
-  & E2   & 102 & 2 & 1000     & 0.964 & 0.379 & 0.187 & 20/20\\
+4 & E0    &  16.0 & 1 & --             & 0.973 & 0.268 & 0.206 & 16/20\\
+  & E1    &  16.0 & 1 & 0.25           & 0.878 & 0.641 & 0.532 & 19/20\\
+  & E1+C  &  16.0 & 1 & 1              & 0.817 & 0.775 & 0.611 & 20/20\\
+  & E2    & 102.4 & 2 & 1000           & 0.964 & 0.379 & 0.187 & 20/20\\
+  & E2-UP &  60.0 & 2 & (0.3, 0.01)    & 0.942 & 0.460 & 0.218 & 20/20\\
 \midrule
-5 & E0   &  25 & 1 & --       & 0.988 & 0.239 & 0.115 & 17/20\\
-  & E1   &  25 & 1 & 0.5      & 0.933 & 0.482 & 0.266 & 20/20\\
-  & E1+C &  25 & 1 & 1        & 0.902 & 0.591 & 0.338 & 20/20\\
-  & E2   & 166 & 1 & $\infty$ & 0.904 & 0.204 & 0.071 & 19/20\\
+5 & E0    &  25.0 & 1 & --             & 0.988 & 0.239 & 0.115 & 17/20\\
+  & E1    &  25.0 & 1 & 0.5            & 0.933 & 0.482 & 0.266 & 20/20\\
+  & E1+C  &  25.0 & 1 & 1              & 0.902 & 0.591 & 0.338 & 20/20\\
+  & E2    & 165.7 & 1 & $\infty$       & 0.904 & 0.204 & 0.071 & 19/20\\
+  & E2-UP & 111.2 & 1 & (0.1, 0.003)   & 0.732 & 0.254 & 0.094 & 20/20\\
 \bottomrule
 \end{tabular}
 \end{table}
 \begin{itemize}
-  % source: results/sa_summary.txt
+  % source: results/sa_summary.txt (same numbers in results/sa_up_summary.txt)
   \item E1+C has the highest $\Popt$ at every $n$, E1 second; E2 beats E0 only at $n=3$, with far more qubits.
+  % source: results/sa_up_summary.txt
+  \item E2-UP, paired against E2 on the same instances: $-0.036$ $[-0.077, +0.006]$, $+0.030$
+        $[+0.000, +0.061]$, $+0.023$ $[+0.005, +0.041]$ at $n = 3, 4, 5$ (mean, 95\% t-interval):
+        about E2's level with about half the qubits. E1 beats it by $+0.253$, $+0.315$, $+0.172$
+        and E1+C by $+0.282$, $+0.394$, $+0.244$, every interval above zero.
+  \item Why E2-UP does not do better: at its tuned weights it leaves 94.1\%, 90.0\% and 96.1\% of
+        late routes unpenalised and rewards every feasible route by its slack; its lowest-energy route
+        is the optimum in 17/20, 12/20 and 11/20 instances. Contrast with Lemma~\ref{lem:sound}.
   \item E2's tuned window weight at $n=5$ is $p_2=\infty$: its window term is switched off. Discuss.
   \item E1 and E1+C lower $\Pvalid$ than E0 at $n=4,5$ (0.878 and 0.817 vs 0.973 at $n=4$). Discuss.
   \item E2 is not starved: oracle mean $\Popt$ 0.070 at $n=5$; at 2000 / 10000 / 50000 sweeps E2
@@ -393,36 +429,41 @@ $n = 4$) with 95\% t-interval bands. Each panel has its own y-scale.}\label{fig:
 \end{figure}
 
 \subsection{Circuit cost}
-% source: results/resources.txt
+% source: qubits and X-mixer ZZ terms from results/sa_up_summary.txt (same instances and values as
+% results/resources.txt, qubits to one decimal); XY-mixer ZZ terms from results/resources.txt
 \begin{table}[t]
 \caption{Qubits and two-qubit (ZZ) terms per QAOA layer, mean over the 20 evaluation instances.
-Every nonzero off-diagonal QUBO entry is one ZZ rotation. E2 is not run with QAOA.}\label{tab:resources}
+Every nonzero off-diagonal QUBO entry is one ZZ rotation. E2 and E2-UP are not run with QAOA.}\label{tab:resources}
 \centering\small
 \begin{tabular}{rlrrr}
 \toprule
 $n$ & Enc. & Qubits & ZZ terms, X mixer & ZZ terms, XY mixer\\
 \midrule
-3 & E0   &   9 &   30.0 & 21.0\\
-  & E1   &   9 &   30.0 & 21.0\\
-  & E1+C &   9 &   32.7 & 23.7\\
-  & E2   &  60 &  875.0 & --\\
+3 & E0    &   9.0 &   30.0 & 21.0\\
+  & E1    &   9.0 &   30.0 & 21.0\\
+  & E1+C  &   9.0 &   32.7 & 23.7\\
+  & E2    &  60.5 &  875.0 & --\\
+  & E2-UP &  29.0 &  348.7 & --\\
 \midrule
-4 & E0   &  16 &   84.0 & 60.0\\
-  & E1   &  16 &   84.0 & 60.0\\
-  & E1+C &  16 &   94.3 & 70.3\\
-  & E2   & 102 & 2931.9 & --\\
+4 & E0    &  16.0 &   84.0 & 60.0\\
+  & E1    &  16.0 &   84.0 & 60.0\\
+  & E1+C  &  16.0 &   94.3 & 70.3\\
+  & E2    & 102.4 & 2931.9 & --\\
+  & E2-UP &  60.0 & 1584.5 & --\\
 \midrule
-5 & E0   &  25 &  180.0 & 130.0\\
-  & E1   &  25 &  180.0 & 130.0\\
-  & E1+C &  25 &  192.2 & 142.2\\
-  & E2   & 166 & 8773.9 & --\\
+5 & E0    &  25.0 &  180.0 & 130.0\\
+  & E1    &  25.0 &  180.0 & 130.0\\
+  & E1+C  &  25.0 &  192.2 & 142.2\\
+  & E2    & 165.7 & 8773.9 & --\\
+  & E2-UP & 111.2 & 5660.4 & --\\
 \bottomrule
 \end{tabular}
 \end{table}
 \begin{itemize}
   \item E1 costs exactly what E0 costs, in qubits and ZZ terms, with either mixer.
   \item E1+C's overhead over E1: state it as a percentage computed from Table~\ref{tab:resources}.
-  \item E2 against E1: qubits and ZZ terms per layer (Table~\ref{tab:resources}); depth implications.
+  \item E2 and E2-UP against E1: qubits and ZZ terms per layer (Table~\ref{tab:resources}); depth implications.
+        E2-UP removes the slack qubits but keeps the waiting-time registers.
   \item The XY mixer removes the row penalty, so fewer ZZ terms than with the X mixer.
 \end{itemize}
 
@@ -492,7 +533,9 @@ $n$ & Method & Pruned (\%) & False+ (\%) & GS = opt (\%) & New ZZ\\
   \item Small sizes ($n\le5$, at most 25 qubits); exact noiseless simulation, no hardware, no shot noise.
   \item E1 is sound but not complete: unpenalised infeasible routes compete on cost alone
         (ground state is the optimum in 64\% of XY instances at $n=5$; E1+C 85\%).
-  \item E2 is only run with simulated annealing, and its tuned window term is off at $n=5$.
+  \item E2 and E2-UP are only run with simulated annealing; E2's tuned window term is off at $n=5$.
+  \item E2-UP is one way to apply unbalanced penalization (to E2's two window inequalities);
+        other formulations may do better.
   \item X-mixer weights sat on the tuning grid's edge; re-tuning beyond it changes little
         (results/qaoa\_grid\_edge.txt).
   \item One vehicle, no separate service times, integer metric costs, generated instances only.
@@ -509,7 +552,7 @@ $n$ & Method & Pruned (\%) & False+ (\%) & GS = opt (\%) & New ZZ\\
   \item Main evidence in one line each: annealing (Table~\ref{tab:sa}), QAOA (Table~\ref{tab:qaoa}),
         cost (Table~\ref{tab:resources}).
   \item Future work: larger $n$ with approximate simulators, hardware runs, permutation-preserving
-        mixers~\cite{hadfield2019qaoa}, unbalanced penalization as a further baseline~\cite{montanezbarrera2024unbalanced},
+        mixers~\cite{hadfield2019qaoa},
         multiple vehicles (CVRPTW, as in~\cite{rezk2026gnn}).
 \end{itemize}
 
