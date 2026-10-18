@@ -9,7 +9,7 @@ E1 turns each customer's earliest possible arrival at each tour position into pe
 | Path | What it is |
 |---|---|
 | `qubo.py` | Instances, exact solver, E0 / E1 / E1+C encodings |
-| `baselines.py` | E2 (Salehi et al.) and the simulated annealer |
+| `baselines.py` | E2 (Salehi et al.), E2-UP (E2 with unbalanced penalization instead of slacks) and the simulated annealer |
 | `qaoa.py` | Exact QAOA simulator (X and XY mixers) |
 | `experiments.py`, `grid.py`, `pilot.py` | Annealing comparison, final QAOA grid, QAOA pilots |
 | `pruning_check.py`, `pruning_large.py` | Classical pruning power, including Rezk and Gora's penalty |

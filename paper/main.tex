@@ -60,7 +60,8 @@
   \item Guarantee: no extra qubits, no extra two-qubit gates for E1, no feasible route penalised.
   \item Evidence: exact QAOA simulation with the XY mixer (Table~\ref{tab:qaoa}) and simulated
         annealing against the slack-qubit encoding of Salehi et al.\ and a slack-free
-        unbalanced-penalization variant of it (Table~\ref{tab:sa}).
+        unbalanced-penalization variant of it (Table~\ref{tab:sa}); classical pruning against
+        Rezk and Gora's penalty up to $n=9$ (Table~\ref{tab:pruning}).
 \end{itemize}
 \keywords{QAOA \and TSP with time windows \and QUBO \and XY mixer \and Penalty methods}
 \end{abstract}
@@ -84,7 +85,9 @@
           weights tuned the same way on separate instances;
     \item exact QAOA simulation with the XY mixer on the states it reaches, to depth 12, with
           paired statistics over fresh instances;
-    \item a window-tightness study on instances with planted windows.
+    \item a window-tightness study on instances with planted windows;
+    \item a classical pruning analysis against Rezk and Gora's penalty, by full route
+          enumeration up to $n=9$.
   \end{enumerate}
   \item Roadmap of the paper.
 \end{itemize}
@@ -159,10 +162,10 @@
   \LB_{j,1} &= \max\bigl(e_j,\; e_0 + d_{0j}\bigr) \label{eq:lb1}\\
   \LB_{j,k} &= \max\Bigl(e_j,\; \min_{u\neq j,\; \LB_{u,k-1}\le l_u} \bigl(\LB_{u,k-1} + d_{uj}\bigr)\Bigr),
       \qquad k = 2,\dots,n \quad (\min\emptyset = +\infty) \label{eq:lbk}\\
-  \lambda_{j,k} &= \iv{\LB_{j,k} > l_j}\ (k<n), \qquad
-  \lambda_{j,n} = \iv{\LB_{j,n} > l_j \;\lor\; \LB_{j,n} + d_{j0} > l_0} \label{eq:lin}\\
+  \eta_{j,k} &= \iv{\LB_{j,k} > l_j}\ (k<n), \qquad
+  \eta_{j,n} = \iv{\LB_{j,n} > l_j \;\lor\; \LB_{j,n} + d_{j0} > l_0} \label{eq:lin}\\
   \mu_{k,u,j} &= \iv{\max\bigl(e_j,\; \LB_{u,k} + d_{uj}\bigr) > l_j}, \qquad u \neq j,\ k = 1,\dots,n-1 \label{eq:pair}\\
-  H_T^{\mathrm{E1}} &= P\Bigl[\sum_{j,k}\lambda_{j,k}\,x_{j,k}
+  H_T^{\mathrm{E1}} &= P\Bigl[\sum_{j,k}\eta_{j,k}\,x_{j,k}
       + \sum_{k=1}^{n-1}\sum_{u\neq j}\mu_{k,u,j}\,x_{u,k}\,x_{j,k+1}\Bigr] \label{eq:HT1}
 \end{align}
 \begin{itemize}
@@ -181,7 +184,7 @@
 Let $\pi$ be a feasible route and $a_k$ the service start at its $k$-th stop,
 $a_1 = \max(e_{\pi(1)}, e_0 + d_{0\pi(1)})$ and $a_k = \max(e_{\pi(k)}, a_{k-1} + d_{\pi(k-1)\pi(k)})$.
 Then $a_k \ge \LB_{\pi(k),k}$ for $k = 1,\dots,n$, and every coefficient
-$\lambda$, $\mu$ (and $\nu$ of Section~\ref{sec:e1c}) on the variables of $\pi$ is zero.
+$\eta$, $\mu$ (and $\nu$ of Section~\ref{sec:e1c}) on the variables of $\pi$ is zero.
 Hence $H(\pi) = B\cdot\mathrm{cost}(\pi)$.
 \end{lemma}
 \begin{proof}
@@ -311,6 +314,11 @@ Hence $H(\pi) = B\cdot\mathrm{cost}(\pi)$.
         Tune every pair on 10 instances (4 for X at $n=4$) at depths 1--5; evaluate on 50 fresh
         instances (20 for X at $n=4$) at $p \in \{1,2,3,5,8,12\}$. Optimiser: INTERP ladder
         \cite{zhou2020qaoa}, 5 random starts at $p=1$ and 3 more at every later depth, L-BFGS with exact gradients.
+  % source: pruning_check.py and pruning_large.py docstrings
+  \item \textbf{Pruning analysis}: every $n!$ route of each instance scored by each method's penalty
+        terms, no solver. 200 instances per size at $n=3,\dots,7$ with window weight $P=1000$
+        (pruning\_check.py); 100 other instances per size at $n=3,\dots,9$ for E1 and E1+C
+        (pruning\_large.py). Rezk and Gora's tiers re-implemented from their code.
   \item \textbf{Metrics}, feasibility first~\cite{holliday2025advanced,azfar2025quantum}:
         $\Popt$ = probability (QAOA) or fraction of reads (SA) ending in an optimal on-time route;
         $\Pvalid$; $\Pontime$; solved = instances with $\Popt>0$. Encodings compared per instance
@@ -521,6 +529,8 @@ $n$ & Method & Pruned (\%) & False+ (\%) & GS = opt (\%) & New ZZ\\
   \item E1+C buys the rest: ground state optimal in 100.0\% of instances at $n=3$ and 67.0\% at $n=5$,
         for 9\% more ZZ terms.
   \item The share of instances whose ground state is the optimum falls with $n$ for every method (E1: 19.0\% at $n=7$). Say what this means for larger instances.
+  \item Two different ground-state shares appear for E1 at $n=5$: 46.5\% here ($P=1000$, 200 instances)
+        and 64\% in the QAOA set (tuned weights, XY space, 50 other instances). Say which one each claim uses.
   % source: results/pruning_large.txt (100 other instances, seeds 90000..90099; late routes only)
   \item Beyond QAOA sizes the pruning holds: at $n=9$ E1 catches $78.3\pm5.6$\% of late routes
         and E1+C $85.6\pm4.9$\% (mean with 95\% t-interval).
@@ -530,7 +540,8 @@ $n$ & Method & Pruned (\%) & False+ (\%) & GS = opt (\%) & New ZZ\\
 % ---------------------------------------------------------------------------------------------
 \section{Limitations}\label{sec:limits}
 \begin{itemize}
-  \item Small sizes ($n\le5$, at most 25 qubits); exact noiseless simulation, no hardware, no shot noise.
+  \item Small QAOA sizes ($n\le5$, at most 25 qubits; classical pruning to $n=9$); exact noiseless
+        simulation, no hardware, no shot noise.
   \item E1 is sound but not complete: unpenalised infeasible routes compete on cost alone
         (ground state is the optimum in 64\% of XY instances at $n=5$; E1+C 85\%).
   \item E2 and E2-UP are only run with simulated annealing; E2's tuned window term is off at $n=5$.
@@ -550,7 +561,7 @@ $n$ & Method & Pruned (\%) & False+ (\%) & GS = opt (\%) & New ZZ\\
 \begin{itemize}
   \item Restate: two sound operating points, E1 (no gate overhead) and E1+C (some extra ZZ terms).
   \item Main evidence in one line each: annealing (Table~\ref{tab:sa}), QAOA (Table~\ref{tab:qaoa}),
-        cost (Table~\ref{tab:resources}).
+        cost (Table~\ref{tab:resources}), pruning (Table~\ref{tab:pruning}).
   \item Future work: larger $n$ with approximate simulators, hardware runs, permutation-preserving
         mixers~\cite{hadfield2019qaoa},
         multiple vehicles (CVRPTW, as in~\cite{rezk2026gnn}).

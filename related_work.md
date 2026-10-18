@@ -19,7 +19,7 @@ Literature review compiled 2026-10-15. Each entry's bibliographic details were c
 | 11 | **Azfar et al. (2025)**, arXiv [2505.01614](https://arxiv.org/abs/2505.01614) | VRP | No TW (flow and subtour constraints as penalties) | QAOA on IBM Quantum System One | Penalty scaling and coefficient normalisation decide feasibility, so normalise our Hamiltonian. |
 | 12 | **Kalleri Madhu et al. (2025)**, arXiv [2512.17291](https://arxiv.org/abs/2512.17291) | TSP | No TW | Edge-based + subspace-reduction encoding; 4–6 cities; IQM hardware | Competing qubit-reduction approach for TSP, without TW. |
 | 13 | **Glos, Krawiec & Zimborás (2022)**, *npj Quantum Inf.* 8:39, [doi](https://doi.org/10.1038/s41534-022-00546-y) | TSP | No TW | Binary (log) encoding: fewer qubits, deeper circuits | A different trade-off (qubits vs depth); belongs in the discussion. |
-| 14 | **Montañez-Barrera et al. (2024)**, *Quantum Sci. Technol.* 9(2), [arXiv 2211.13914](https://arxiv.org/abs/2211.13914) | TSP, bin packing, knapsack | Slack-free "unbalanced penalization" for inequality constraints | Mainly quantum annealing | The main slack-free alternative. Reviewers may ask for it as a baseline. |
+| 14 | **Montañez-Barrera et al. (2024)**, *Quantum Sci. Technol.* 9(2), [arXiv 2211.13914](https://arxiv.org/abs/2211.13914) | TSP, bin packing, knapsack | Slack-free "unbalanced penalization" for inequality constraints | Mainly quantum annealing | The main slack-free alternative. Reviewers may ask for it as a baseline. Done as E2-UP: `baselines.UnbalancedQUBO`, `results/sa_up_summary.txt`. |
 | 15 | **Ayodele (2022)**, EvoCOP 2022, LNCS, [doi](https://doi.org/10.1007/978-3-031-04148-8_11) | Permutation QUBOs (TSP etc.) | — | Static rules for penalty weights | Use these rules to set the λ weights, so they aren't hand-tuned. |
 
 ## 2. Foundations to cite
@@ -172,7 +172,7 @@ Present LB(j,k) as building on their footnote, not as entirely new.
    Then scale the same protocol up to 50 instances per size and add a window-tightness sweep.
 4. **Metrics put feasibility first**, because #4 and #11 show feasibility is the bottleneck.
 5. **Penalty weights:** set them with Ayodele's static rules (#15) plus Hamiltonian normalisation (#11).
-6. **Optional January baseline:** unbalanced penalization (#14), if time allows.
+6. **Unbalanced-penalization baseline (#14): done (2026-10-18)** as E2-UP, E2 with its window slacks replaced by unbalanced penalties. About half of E2's qubits, P(opt) close to E2's, well below E1 and E1+C (`results/sa_up_summary.txt`).
 7. **Venue:** ICCS fits (#7). Cite #1 precisely and generously.
 8. **First classical result** (`pruning_check.py`; 200 instances per size, Salehi protocol, P = 1000):
    - E1 never penalises a feasible route.

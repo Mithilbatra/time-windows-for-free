@@ -207,16 +207,17 @@ def tightness(workers=6):
 
 def resource_counts():
     """(n, encoding) → mean (qubits, two-qubit terms with the X mixer, with the XY mixer) over
-    the 20 evaluation instances, p1 = p2 = 1.  Every nonzero off-diagonal entry of Q is one ZZ
-    rotation, two CNOTs, per layer; with the XY mixer our encodings drop the each-customer-once
-    penalty (zero on the states that mixer reaches), and E2 has no XY count (nan)."""
+    the 20 evaluation instances, p1 = p2 = 1 (E2-UP: λ1 = λ2 = 1).  Every nonzero off-diagonal
+    entry of Q is one ZZ rotation, two CNOTs, per layer; with the XY mixer our encodings drop the
+    each-customer-once penalty (zero on the states that mixer reaches), and E2 and E2-UP have no
+    XY count (nan)."""
     out = {}
     for n in SIZES:
-        for enc in ENCODINGS:
+        for enc in ENCODINGS + ("E2-UP",):
             counts = []
             for s in EVAL_SEEDS:
-                b = builder(enc, make_instance(n, s), 1, 1)
-                xy = np.count_nonzero(np.triu(b.qubo(rows=False)[0], 1)) if enc != "E2" else np.nan
+                b = builder(enc, make_instance(n, s), 1, (1, 1) if enc == "E2-UP" else 1)
+                xy = np.nan if enc.startswith("E2") else np.count_nonzero(np.triu(b.qubo(rows=False)[0], 1))
                 counts.append((b.N, np.count_nonzero(np.triu(b.Q, 1)), xy))
             out[n, enc] = np.mean(counts, axis=0)
     return out
@@ -226,9 +227,9 @@ def resources():
     """What each encoding costs a QAOA circuit (resource_counts), as a table."""
     print(f"{'n':>2} {'enc':5} {'qubits':>7} {'ZZ terms, X mixer':>18} {'ZZ terms, XY mixer':>19}")
     for (n, enc), (qubits, zz_x, zz_xy) in resource_counts().items():
-        xy = f"{zz_xy:19.1f}" if enc != "E2" else f"{'-':>19}"
+        xy = f"{'-':>19}" if np.isnan(zz_xy) else f"{zz_xy:19.1f}"
         print(f"{n:>2} {enc:5} {qubits:7.0f} {zz_x:18.1f} {xy}")
-        if enc == ENCODINGS[-1]:
+        if enc == "E2-UP":
             print()
 
 
@@ -263,9 +264,6 @@ def unbalanced_summary():
     rows = load("results/sa.csv") + load("results/sa_up.csv")
     encodings = ENCODINGS + ("E2-UP",)
     zz = {key: v[1] for key, v in resource_counts().items()}
-    for n in SIZES:
-        zz[n, "E2-UP"] = np.mean([np.count_nonzero(np.triu(builder("E2-UP", make_instance(n, s), 1, (1, 1)).Q, 1))
-                                  for s in EVAL_SEEDS])
     t95 = stats.t.ppf(0.975, len(EVAL_SEEDS) - 1)
     print("E2-UP: E2 (Salehi et al. 2022) with its two time-window slack registers per stop replaced by")
     print("unbalanced penalization (Montañez-Barrera et al. 2024, Eq. 25): h >= 0 costs -l1*h + l2*h^2.")

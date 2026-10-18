@@ -6,7 +6,8 @@ Paper figures, drawn from results/ into figures/ (PDF for the paper, PNG to look
   resources     qubits and two-qubit terms per QAOA layer (experiments.resource_counts)
 Colours are the dataviz reference palette's first three slots plus a gray for the E0
 control, validated for colour-blind and normal-vision separation on white; every encoding
-also has its own marker, so the figures survive greyscale print.
+also has its own marker, so the figures survive greyscale print.  E2-UP (resources only) is
+E2's hue with a hollow marker: a fourth slot fails the all-pairs check on a dot chart.
 Run:  python figures.py
 """
 import csv
@@ -22,9 +23,9 @@ from matplotlib.ticker import FuncFormatter
 import grid
 from experiments import ENCODINGS, SIZES, WIDTHS, resource_counts
 
-STYLE = {"E0": ("#6e6d69", "o"), "E2": ("#1baf7a", "^"),
+STYLE = {"E0": ("#6e6d69", "o"), "E2": ("#1baf7a", "^"), "E2-UP": ("#1baf7a", "v"),
          "E1": ("#2a78d6", "s"), "E1+C": ("#eb6834", "D")}          # drawing and legend order
-LABEL = {"E0": "E0  no window term", "E2": "E2  Salehi et al.",
+LABEL = {"E0": "E0  no window term", "E2": "E2  Salehi et al.", "E2-UP": "E2-UP  unbalanced penalization",
          "E1": "E1  ours", "E1+C": "E1+C  ours, look-ahead"}
 INK, INK2, GRID, AXIS = "#0b0b0b", "#52514e", "#e1e0d9", "#c3c2b7"
 
@@ -90,7 +91,7 @@ def sa_tightness():
     x = range(len(WIDTHS))
     fig, axes = plt.subplots(1, 3, figsize=(4.8, 1.9), sharey=True)
     for ax, n in zip(axes, SIZES):
-        for enc in STYLE:
+        for enc in (e for e in STYLE if e in ENCODINGS):          # no E2-UP in the tightness sweep
             series(ax, x, [vals[n, w, enc] for w in WIDTHS], enc)
         ax.set_title(f"n = {n}")
         ax.set_xticks(x, WIDTHS)
@@ -108,9 +109,10 @@ def resources():
     for ax, (k, title) in zip(axes, ((0, "qubits"), (1, "two-qubit terms per layer, X mixer"))):
         for i, enc in enumerate(STYLE):
             color, marker = STYLE[enc]
-            x = np.arange(len(SIZES)) + (i - 1.5) * 0.13         # side by side, so equal counts stay visible
-            ax.plot(x, [counts[n, enc][k] for n in SIZES], ls="none", color=color, marker=marker, ms=6,
-                    label=LABEL[enc])
+            x = np.arange(len(SIZES)) + (i - (len(STYLE) - 1) / 2) * 0.13   # side by side: equal counts stay visible
+            look = dict(mfc="white", mec=color, mew=1.1, ms=5) if enc == "E2-UP" else dict(ms=6)
+            ax.plot(x, [counts[n, enc][k] for n in SIZES], ls="none", color=color, marker=marker,
+                    label=LABEL[enc], **look)
             if enc in ("E1", "E2"):                               # label the n = 5 contrast only
                 v = counts[SIZES[-1], enc][k]
                 ax.annotate(f"{v:,.0f}", (x[-1], v), textcoords="offset points", color=INK2, fontsize=6.5,
@@ -120,7 +122,7 @@ def resources():
         ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}"))
         ax.set_xticks(range(len(SIZES)), [f"n = {n}" for n in SIZES])
         ax.set_title(title)
-    fig.legend(*axes[0].get_legend_handles_labels(), loc="upper center", ncol=4, bbox_to_anchor=(0.5, 1.1))
+    fig.legend(*axes[0].get_legend_handles_labels(), loc="upper center", ncol=3, bbox_to_anchor=(0.5, 1.2))
     fig.tight_layout()
     save(fig, "resources")
 
