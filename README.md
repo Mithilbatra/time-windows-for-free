@@ -15,7 +15,7 @@ E1 turns each customer's earliest possible arrival at each tour position into pe
 | `pruning_check.py`, `pruning_large.py` | Classical pruning power, including Rezk and Gora's penalty |
 | `results/` | Every number in the paper |
 | `figures.py`, `figures/` | Paper figures |
-| `paper/` | LaTeX draft (Springer LNCS) |
+| `paper/` | The paper (Springer LNCS): `main.tex`, `refs.bib`; `sh paper/arxiv.sh` builds the PDF and the arXiv zip with Tectonic |
 | `app.py`, `views/`, `ui.py` | Streamlit companion app |
 | `related_work.md` | Literature review |
 

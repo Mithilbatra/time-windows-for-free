@@ -1,5 +1,5 @@
-"""Every decimal (0.474), percentage (91%) and k/m count (19/20) in main.tex, comments left out,
-must appear in results/*.txt.  Integers are not checked: they cite their source in a comment.
+"""Every decimal (0.474), percentage (91%) and k/m count (19/20) in main.tex's body, comments left
+out, must appear in results/*.txt.  Integers and the preamble's layout lengths are not checked.
 Run:  python3 paper/check_numbers.py"""
 import pathlib
 import re
@@ -9,7 +9,8 @@ root = pathlib.Path(__file__).resolve().parent.parent
 NUM = re.compile(r"\d+(?:\.\d+|%|/\d+)")
 known = {m for f in (root / "results").glob("*.txt") for m in NUM.findall(f.read_text())}
 lines = (root / "paper" / "main.tex").read_text().splitlines()
-bad = [(i, m) for i, line in enumerate(lines, 1)
+body = next(i for i, line in enumerate(lines) if line.startswith(r"\begin{document}"))
+bad = [(i, m) for i, line in enumerate(lines[body:], body + 1)
        for m in NUM.findall(re.sub(r"(?<!\\)%.*", "", line).replace("\\%", "%")) if m not in known]
 for i, m in bad:
     print(f"main.tex:{i}: {m} is not in results/*.txt")

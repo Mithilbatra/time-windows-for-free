@@ -2,3 +2,6 @@ __pycache__/
 .DS_Store
 # macOS folder-icon file is "Icon\r"
 Icon?
+# build outputs of paper/arxiv.sh
+paper/main.pdf
+paper/arxiv.zip

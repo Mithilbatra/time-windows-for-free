@@ -172,7 +172,7 @@ Present LB(j,k) as building on their footnote, not as entirely new.
    Then scale the same protocol up to 50 instances per size and add a window-tightness sweep.
 4. **Metrics put feasibility first**, because #4 and #11 show feasibility is the bottleneck.
 5. **Penalty weights:** set them with Ayodele's static rules (#15) plus Hamiltonian normalisation (#11).
-6. **Unbalanced-penalization baseline (#14): done (2026-10-18)** as E2-UP, E2 with its window slacks replaced by unbalanced penalties. About half of E2's qubits, P(opt) close to E2's, well below E1 and E1+C (`results/sa_up_summary.txt`).
+6. **Unbalanced-penalization baseline (#14): done (2026-10-18)** as E2-UP, E2 with its window slacks replaced by unbalanced penalties. Fewer qubits than E2 (29.0–111.2 vs 60.5–165.7), P(opt) close to E2's, well below E1 and E1+C (`results/sa_up_summary.txt`).
 7. **Venue:** ICCS fits (#7). Cite #1 precisely and generously.
 8. **First classical result** (`pruning_check.py`; 200 instances per size, Salehi protocol, P = 1000):
    - E1 never penalises a feasible route.
