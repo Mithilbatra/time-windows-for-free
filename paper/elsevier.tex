@@ -1,0 +1,68 @@
+% Time Windows for Free -- the same paper in Elsevier's CAS single-column layout (cas-sc), e.g.
+% for the major-project report. The macros, abstract and body come from shared.tex and body.tex,
+% the same files main.tex uses, so edit the text there; only the front matter lives here.
+% Build: `tectonic elsevier.tex` in paper/ (writes elsevier.pdf).
+\documentclass[a4paper,fleqn]{cas-sc}
+\usepackage[numbers,sort&compress]{natbib}   % main.tex's text is written for numbered citations
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\graphicspath{{../figures/}{figures/}{./}}
+\newtheorem{lemma}{Lemma}
+\newproof{proof}{Proof}
+\ExplSyntaxOn                 % "Email address:" in place of the template's icon images,
+\bool_gset_true:N \g_stm_nologo_bool   % which ship with Elsevier's zip but not with TeX Live
+\cs_set:Npn \__first_footerline:          % the class prints "Preprint submitted to Elsevier"
+  { \group_begin: \small \sffamily \__short_authors: :~ { \rmfamily \itshape Preprint } \group_end: }
+\ExplSyntaxOff
+\input{shared}
+
+\begin{document}
+\let\WriteBookmarks\relax
+\def\floatpagepagefraction{1}
+\def\textpagefraction{.001}
+
+\shorttitle{Time Windows for Free}
+\shortauthors{M. Batra}
+
+\title [mode = title]{Time Windows for Free: A Sound, Ancilla-Free Time-Window Encoding for QAOA
+on the TSP with Time Windows}
+
+\author[1]{Mithil Batra}
+\cormark[1]
+\ead{mithil.batra05@gmail.com}
+\affiliation[1]{organization={Department of Computer Science and Engineering, National Institute of Technology Delhi},
+            addressline={Plot No. FA7, Zone P1, GT Karnal Road},
+            city={Delhi},
+            postcode={110036},
+            state={Delhi},
+            country={India}}
+\cortext[1]{Corresponding author}
+
+% The class copies the abstract environment's lines verbatim to \jobname.abs and reads them back
+% in \maketitle, which loses the \theabstract macro; so write the abstract's text there directly.
+\newwrite\absfile
+\immediate\openout\absfile=\jobname.abs
+\immediate\write\absfile{\unexpanded\expandafter{\theabstract}}
+\immediate\closeout\absfile
+
+\begin{highlights}
+    \item Time-window penalties from earliest-arrival bounds, with no extra qubits or gates.
+    \item Provably sound: no feasible (on-time) route is ever penalised.
+    \item In exact QAOA simulation, E1+C raises P(opt) over a window-free encoding.
+    \item Beats slack-qubit and unbalanced-penalization QUBOs under simulated annealing.
+    \item Prunes most late routes on instances with up to nine customers.
+\end{highlights}
+
+\begin{keywords}
+QAOA \sep TSP with time windows \sep QUBO \sep XY mixer \sep Penalty methods
+\end{keywords}
+
+\maketitle
+
+\input{body}
+
+\bibliographystyle{cas-model2-names}
+\bibliography{refs}
+
+\end{document}

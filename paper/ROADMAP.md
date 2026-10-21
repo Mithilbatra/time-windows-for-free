@@ -6,11 +6,9 @@ Status 2026-10-18: full draft in `main.tex`, 15 pages including references (the 
 ## What is left, all of it yours
 
 1. **Read the whole paper** (`paper/main.pdf`, rebuild with `tectonic main.tex` in `paper/`). The text was drafted with AI assistance at your request, and the paper says so ("Use of AI Tools"). Change anything you would not say yourself. Check that the two closing statements are true for you: "no competing interests", and "the author checked every equation, number and citation". Check your college's rules on AI-written text too.
-2. **Fill the two TODOs in `main.tex`:** your affiliation (`\institute`) and the repository URL (`\repourl`). Add co-authors or an acknowledgements section (e.g. your advisor) if you have them.
-3. **Publish the code and data** (MIT; `README.md` and `LICENSE` are ready):
-   - create an empty public repository on github.com, e.g. `time-windows-for-free`
-   - `git remote add origin https://github.com/<you>/time-windows-for-free.git`
-   - `git push -u origin main`
+2. **Authors:** the affiliation (CSE, NIT Delhi) and the repository URL are filled in. Add co-authors or an acknowledgements section (e.g. your advisor) if you have them, in `main.tex` and `elsevier.tex`.
+3. **Code and data** are public at https://github.com/Mithilbatra/time-windows-for-free (MIT):
+   - push later changes with `git push`
    - optional DOI: sign in to zenodo.org with GitHub, switch the repository on, publish a GitHub release
    - Local tool files are untracked and stay private.
 4. **Build the arXiv upload:** `sh paper/arxiv.sh`. It refuses while a TODO or an untraceable number remains, and writes `paper/main.pdf` and `paper/arxiv.zip` (main.tex, main.bbl, llncs.cls, two figures), checking that the zip compiles on its own.
@@ -30,11 +28,11 @@ The paper develops and benchmarks a computational method for a classical combina
 | Step | Where |
 |---|---|
 | Research, results, figures | `results/`, `figures/` (earlier commits) |
-| E2-UP baseline (unbalanced penalization) | 735b0cc, merged 61c298b |
-| Pruning analysis, LaTeX skeleton, references checked against arXiv, Crossref and Springer | d22af28 and later |
-| ICCS facts, LNCS volumes, INTERP citation | 49406c9 and later |
-| README and MIT licence | d6297b3 |
-| Full draft, 15 pages; Tectonic build; `arxiv.sh` | this commit |
+| E2-UP baseline (unbalanced penalization) | 117ce2e, merged f20cda0 |
+| Pruning analysis, LaTeX skeleton, references checked against arXiv, Crossref and Springer | a7a9704 and later |
+| ICCS facts, LNCS volumes, INTERP citation | bb4b0ba and later |
+| README and MIT licence | 3152ce8 |
+| Full draft, 15 pages; Tectonic build; `arxiv.sh` | ae0d124 |
 | Checks: `python3 paper/check_numbers.py`, `python3 tests.py` (19 tests) | run on every change |
 
 Skipped on purpose: a P(on time) table and the gap-matrix table (no room in 15 pages); the `resources` figure is left out of the paper because Table 4 holds the same numbers.

@@ -1,11 +1,11 @@
 #!/bin/sh
-# Build paper/main.pdf and the arXiv upload paper/arxiv.zip (main.tex, main.bbl, llncs.cls and the
-# two figures the paper uses), then check that the zip compiles on its own.
-# Refuses while main.tex still says TODO or a number fails check_numbers.py.
+# Build paper/main.pdf and the arXiv upload paper/arxiv.zip (main.tex, shared.tex, body.tex, main.bbl,
+# llncs.cls and the two figures the paper uses), then check that the zip compiles on its own.
+# Refuses while the paper still says TODO or a number fails check_numbers.py.
 # Run:  sh paper/arxiv.sh        (needs Tectonic: brew install tectonic)
 set -e
 cd "$(dirname "$0")"
-if grep -n TODO main.tex; then echo "main.tex still has the TODOs above" >&2; exit 1; fi
+if grep -n TODO main.tex shared.tex body.tex; then echo "the paper still has the TODOs above" >&2; exit 1; fi
 python3 check_numbers.py
 
 build=$(mktemp -d)
@@ -13,7 +13,7 @@ tectonic --keep-intermediates --keep-logs --outdir "$build" main.tex
 cp "$build/main.pdf" main.pdf
 
 bundle=$(mktemp -d)
-cp main.tex "$build/main.bbl" ../figures/qaoa_depth.pdf ../figures/sa_tightness.pdf "$bundle"
+cp main.tex shared.tex body.tex "$build/main.bbl" ../figures/qaoa_depth.pdf ../figures/sa_tightness.pdf "$bundle"
 tectonic -X bundle cat llncs.cls > "$bundle/llncs.cls"   # in case arXiv's TeX Live lacks it; the
                                                          # .bbl means arXiv needs no .bst
 rm -f arxiv.zip

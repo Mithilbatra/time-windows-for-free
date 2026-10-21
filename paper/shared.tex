@@ -1,0 +1,22 @@
+% Macros and abstract shared by main.tex (Springer LNCS) and elsevier.tex (Elsevier CAS).
+\newcommand{\Popt}{P(\mathrm{opt})}
+\newcommand{\Pvalid}{P(\mathrm{valid})}
+\newcommand{\Pontime}{P(\text{on time})}
+\newcommand{\LB}{\mathit{LB}}
+\newcommand{\iv}[1]{\bigl[\,#1\,\bigr]}   % Iverson bracket: 1 if #1 holds, else 0
+\newcommand{\repourl}{\url{https://github.com/Mithilbatra/time-windows-for-free}}
+
+% source for the numbers: results/qaoa_grid_summary.txt, results/sa_up_summary.txt, results/pruning_large.txt
+\newcommand{\theabstract}{%
+QUBO encodings of the travelling salesman problem with time windows (TSPTW) usually enforce
+the windows with slack variables, which multiplies the number of qubits and two-qubit gates. We
+bound every customer's earliest possible service start at every tour position with a dynamic
+programme and turn the bounds into penalties. The resulting encoding, E1, needs no qubits or
+two-qubit terms beyond those of the window-free position encoding and provably never penalises
+a feasible route; a look-ahead variant, E1+C, prunes more for a few percent more two-qubit
+terms. In exact QAOA simulation with an XY mixer on three to five customers, E1+C raises the
+probability of sampling the optimal route over a window-free encoding at every depth, by 0.094
+to 0.217 at depth 12. Under simulated annealing, E1 and E1+C outperform the slack-qubit encoding
+of Salehi et al.\ and a slack-free unbalanced-penalization variant of it with far fewer qubits.
+Over all routes of instances with up to nine customers, E1 penalises 68.8--85.2\% of the late
+routes and, unlike a recent heuristic penalty, never an on-time one.}
