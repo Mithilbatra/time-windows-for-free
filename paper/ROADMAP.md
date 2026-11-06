@@ -5,7 +5,7 @@ Status 2026-10-18: full draft in `main.tex`, 15 pages including references (the 
 
 ## What is left, all of it yours
 
-1. **Read the whole paper** (`paper/main.pdf`, rebuild with `tectonic main.tex` in `paper/`). The text was drafted with AI assistance at your request, and the paper says so ("Use of AI Tools"). Change anything you would not say yourself. Check that the two closing statements are true for you: "no competing interests", and "the author checked every equation, number and citation". Check your college's rules on AI-written text too.
+1. **Read the whole paper** (`paper/main.pdf`, rebuild with `tectonic main.tex` in `paper/`). The text was drafted with AI assistance at your request, and the paper says so ("Use of AI Tools"). Change anything you would not say yourself. Check that the closing "no competing interests" statement is true for you. Once the text is in your own words, update "Use of AI Tools" to say what the assistants actually did. Check your college's rules on AI-written text too.
 2. **Authors:** the affiliation (CSE, NIT Delhi) and the repository URL are filled in. Add co-authors or an acknowledgements section (e.g. your advisor) if you have them, in `main.tex` and `elsevier.tex`.
 3. **Code and data** are public at https://github.com/Mithilbatra/time-windows-for-free (MIT):
    - push later changes with `git push`
